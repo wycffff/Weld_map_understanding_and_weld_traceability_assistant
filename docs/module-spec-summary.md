@@ -164,6 +164,6 @@ The current repository maps these concepts into:
 - `M7`: running with SQLite persistence for drawings, welds, BOM rows, and review items.
 - `M8`: now running for weld status updates, inspection updates, photo evidence uploads, and append-only event logging.
 - `M9`: running for JSON/CSV export, including stored traceability records.
-- `M10`: running as a Streamlit demo for upload, search, review, export, weld traceability actions, and manual weld intake when recognition misses a weld row.
+- `M10`: running as a Streamlit demo for upload, search, review, export, weld traceability actions, and manual/bulk weld intake when recognition misses one or more weld rows.
 
 This summary will evolve as implementation expands, but the OCR-first / review-first design rules above remain the stable baseline.

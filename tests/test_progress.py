@@ -59,6 +59,45 @@ class ProgressServiceTest(unittest.TestCase):
         self.assertEqual(len(repo.list_photo_evidence("DRAW-MANUAL", "W77")), 1)
         self.assertTrue(Path(evidence.file_path).exists())
 
+    def test_bulk_weld_registration_skips_existing_and_normalizes_ids(self) -> None:
+        temp_root = Path("data/test_runs")
+        temp_root.mkdir(parents=True, exist_ok=True)
+        tmpdir = temp_root / f"progress_{uuid4().hex[:8]}"
+        tmpdir.mkdir(parents=True, exist_ok=True)
+        config = AppConfig.model_validate(
+            {
+                "pipeline": {"data_root": str(tmpdir)},
+                "database": {"path": str(tmpdir / "db" / "test.db")},
+            }
+        )
+        repo = SQLiteRepository(config)
+        repo.init_db()
+        progress = ProgressService(repo)
+
+        structured = StructuredDrawing(
+            document_id="doc_progress_bulk",
+            drawing=DrawingData(drawing_number="DRAW-BULK", spool_name="DRAW-BULK"),
+            welds=[WeldItem(weld_id="W01", confidence=0.95)],
+            processing_log=ProcessingLog(
+                pipeline_version="0.1.0",
+                processed_at="2026-04-04T10:00:00+03:00",
+                layout_confidence="high",
+                ocr_engine="test",
+            ),
+        )
+        repo.import_structured_drawing(structured)
+
+        result = progress.register_welds(
+            "DRAW-BULK",
+            ["W1", "W02", "W-02", "3"],
+            operator="alice",
+            skip_existing=True,
+        )
+
+        self.assertEqual(result["created"], ["W02", "3"])
+        self.assertEqual(result["skipped_existing"], ["W01"])
+        self.assertEqual([row["weld_id"] for row in repo.list_welds("DRAW-BULK")], ["3", "W01", "W02"])
+
     def test_status_inspection_and_photo_linking_are_persisted_and_exported(self) -> None:
         temp_root = Path("data/test_runs")
         temp_root.mkdir(parents=True, exist_ok=True)

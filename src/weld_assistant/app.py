@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from weld_assistant.config import load_config
 from weld_assistant.db.repository import SQLiteRepository
 from weld_assistant.services.exporter import RepositoryExporter
 from weld_assistant.services.pipeline import PipelineService
-from weld_assistant.services.progress import ProgressService
+from weld_assistant.services.progress import ProgressService, normalize_manual_weld_id
 
 
 def _require_streamlit():
@@ -128,43 +129,75 @@ def render_traceability_workspace(st, repository: SQLiteRepository, progress_ser
 
     with manual_tab:
         st.caption(
-            "Use this when OCR/VLM did not create the weld row yet. "
-            "You can register a weld manually and optionally attach the first weld photo immediately."
+            "Use this for drawings that are already scanned into the database but still miss some weld rows. "
+            "You can register one or many weld IDs, skip already-existing IDs, and for a single weld also attach the first photo immediately."
         )
+        if weld_rows:
+            existing_ids = [row["weld_id"] for row in weld_rows]
+            preview = ", ".join(existing_ids[:12])
+            suffix = " ..." if len(existing_ids) > 12 else ""
+            st.caption(f"Existing weld IDs: {preview}{suffix}")
         with st.form(f"manual_weld_form_{drawing_number}"):
-            weld_id = st.text_input("Weld ID", key=f"manual_weld_id_{drawing_number}")
-            location_description = st.text_input("Location description", key=f"manual_weld_location_{drawing_number}")
+            weld_id_text = st.text_area(
+                "Weld IDs",
+                key=f"manual_weld_id_{drawing_number}",
+                help="Enter one weld ID per line or use commas. Examples: W01, W02, 1, 2",
+            )
+            location_description = st.text_input(
+                "Shared location description (optional)",
+                key=f"manual_weld_location_{drawing_number}",
+            )
             operator = st.text_input("Recorded by", key=f"manual_weld_operator_{drawing_number}")
             note = st.text_input("Registration note", key=f"manual_weld_note_{drawing_number}")
+            skip_existing = st.checkbox(
+                "Skip weld IDs that already exist",
+                value=True,
+                key=f"manual_weld_skip_existing_{drawing_number}",
+            )
             uploaded_photo = st.file_uploader(
-                "Optional first weld photo",
+                "Optional first weld photo for a single weld ID",
                 type=["png", "jpg", "jpeg", "webp"],
                 key=f"manual_weld_photo_{drawing_number}",
             )
             submitted = st.form_submit_button("Register weld")
         if submitted:
-            if not weld_id.strip():
-                st.error("Enter a weld ID first.")
+            normalized_ids = parse_manual_weld_ids(weld_id_text)
+            if not normalized_ids:
+                st.error("Enter at least one valid weld ID first.")
+            elif uploaded_photo and len(normalized_ids) != 1:
+                st.error("Photo linking from the manual intake form only works when exactly one weld ID is submitted.")
             else:
-                event = progress_service.register_weld(
+                result = progress_service.register_welds(
                     drawing_number=drawing_number,
-                    weld_id=weld_id.strip(),
+                    weld_ids=normalized_ids,
                     location_description=location_description.strip() or None,
                     operator=operator.strip() or None,
                     note=note.strip() or None,
+                    skip_existing=skip_existing,
                 )
+                created_ids = result["created"]
+                skipped_ids = result["skipped_existing"]
                 if uploaded_photo:
+                    target_weld_id = normalized_ids[0]
                     evidence = progress_service.link_photo(
                         drawing_number=drawing_number,
-                        weld_id=weld_id.strip(),
+                        weld_id=target_weld_id,
                         file_bytes=uploaded_photo.getvalue(),
                         filename=uploaded_photo.name,
                         linked_by=operator.strip() or None,
                         note=note.strip() or None,
                     )
-                    st.success(f"Registered {event.weld_id} and linked photo {evidence.photo_id}.")
+                    st.success(
+                        f"Processed weld intake for {target_weld_id}. "
+                        f"Created: {', '.join(created_ids) if created_ids else 'none'}; "
+                        f"skipped existing: {', '.join(skipped_ids) if skipped_ids else 'none'}. "
+                        f"Linked photo {evidence.photo_id}."
+                    )
                 else:
-                    st.success(f"Registered weld {event.weld_id}.")
+                    st.success(
+                        f"Created welds: {', '.join(created_ids) if created_ids else 'none'}. "
+                        f"Skipped existing: {', '.join(skipped_ids) if skipped_ids else 'none'}."
+                    )
                 st.rerun()
 
     with manage_tab:
@@ -283,6 +316,27 @@ def unique_options(current_value: str | None, options: list[str]) -> list[str]:
             continue
         seen.add(item)
         result.append(item)
+    return result
+
+
+def parse_manual_weld_ids(raw_value: str) -> list[str]:
+    values = re.split(r"[\s,;]+", raw_value or "")
+    normalized: list[str] = []
+    for value in values:
+        normalized_value = normalize_manual_weld_id(value)
+        if normalized_value:
+            normalized.append(normalized_value)
+    return dedupe_preserve_order(normalized)
+
+
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
     return result
 
 

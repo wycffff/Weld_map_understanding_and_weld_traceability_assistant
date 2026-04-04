@@ -14,6 +14,78 @@ class ProgressService:
     def __init__(self, repository: SQLiteRepository):
         self.repository = repository
 
+    def register_welds(
+        self,
+        drawing_number: str,
+        weld_ids: list[str],
+        location_description: str | None = None,
+        operator: str | None = None,
+        note: str | None = None,
+        status: str = "not_started",
+        inspection_status: str = "not_checked",
+        needs_review: bool = True,
+        skip_existing: bool = True,
+    ) -> dict[str, list[str]]:
+        normalized_ids = dedupe_preserve_order(
+            [normalize_manual_weld_id(weld_id) for weld_id in weld_ids if normalize_manual_weld_id(weld_id)]
+        )
+        created: list[str] = []
+        skipped_existing: list[str] = []
+        if not normalized_ids:
+            return {"created": created, "skipped_existing": skipped_existing}
+
+        created_at = datetime.now().astimezone()
+        with self.repository.connect() as connection:
+            drawing = connection.execute(
+                "SELECT drawing_number FROM drawing WHERE drawing_number = ?",
+                (drawing_number,),
+            ).fetchone()
+            if not drawing:
+                raise ValueError(f"Drawing not found: {drawing_number}")
+
+            existing_ids = {
+                row["weld_id"]
+                for row in connection.execute(
+                    "SELECT weld_id FROM weld WHERE drawing_number = ?",
+                    (drawing_number,),
+                ).fetchall()
+            }
+
+            for weld_id in normalized_ids:
+                if weld_id in existing_ids:
+                    if skip_existing:
+                        skipped_existing.append(weld_id)
+                        continue
+                    raise ValueError(f"Weld already exists: {drawing_number}/{weld_id}")
+
+                self._insert_weld(
+                    connection=connection,
+                    drawing_number=drawing_number,
+                    weld_id=weld_id,
+                    location_description=location_description,
+                    status=status,
+                    inspection_status=inspection_status,
+                    needs_review=needs_review,
+                    created_at=created_at,
+                )
+                self._insert_event(
+                    connection,
+                    self._build_event(
+                        event_id=f"ev_{uuid4().hex[:10]}",
+                        drawing_number=drawing_number,
+                        weld_id=weld_id,
+                        event_type="weld_registered",
+                        from_status=None,
+                        to_status=status,
+                        operator=operator,
+                        note=note or "Weld was added manually.",
+                    ),
+                )
+                existing_ids.add(weld_id)
+                created.append(weld_id)
+
+        return {"created": created, "skipped_existing": skipped_existing}
+
     def register_weld(
         self,
         drawing_number: str,
@@ -25,6 +97,9 @@ class ProgressService:
         inspection_status: str = "not_checked",
         needs_review: bool = True,
     ) -> WeldProgressEvent:
+        normalized_id = normalize_manual_weld_id(weld_id)
+        if not normalized_id:
+            raise ValueError("Invalid weld_id.")
         created_at = datetime.now().astimezone()
         with self.repository.connect() as connection:
             drawing = connection.execute(
@@ -36,34 +111,25 @@ class ProgressService:
 
             existing = connection.execute(
                 "SELECT weld_id FROM weld WHERE drawing_number = ? AND weld_id = ?",
-                (drawing_number, weld_id),
+                (drawing_number, normalized_id),
             ).fetchone()
             if existing:
-                raise ValueError(f"Weld already exists: {drawing_number}/{weld_id}")
+                raise ValueError(f"Weld already exists: {drawing_number}/{normalized_id}")
 
-            connection.execute(
-                """
-                INSERT INTO weld (
-                  drawing_number, weld_id, location_description, status,
-                  inspection_status, ocr_confidence, needs_review, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    drawing_number,
-                    weld_id,
-                    location_description,
-                    status,
-                    inspection_status,
-                    None,
-                    int(needs_review),
-                    created_at.isoformat(),
-                ),
+            self._insert_weld(
+                connection=connection,
+                drawing_number=drawing_number,
+                weld_id=normalized_id,
+                location_description=location_description,
+                status=status,
+                inspection_status=inspection_status,
+                needs_review=needs_review,
+                created_at=created_at,
             )
-
             event = self._build_event(
                 event_id=f"ev_{uuid4().hex[:10]}",
                 drawing_number=drawing_number,
-                weld_id=weld_id,
+                weld_id=normalized_id,
                 event_type="weld_registered",
                 from_status=None,
                 to_status=status,
@@ -229,3 +295,57 @@ class ProgressService:
                 event.note,
             ),
         )
+
+    @staticmethod
+    def _insert_weld(
+        connection: sqlite3.Connection,
+        drawing_number: str,
+        weld_id: str,
+        location_description: str | None,
+        status: str,
+        inspection_status: str,
+        needs_review: bool,
+        created_at: datetime,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO weld (
+              drawing_number, weld_id, location_description, status,
+              inspection_status, ocr_confidence, needs_review, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                drawing_number,
+                weld_id,
+                location_description,
+                status,
+                inspection_status,
+                None,
+                int(needs_review),
+                created_at.isoformat(),
+            ),
+        )
+
+
+def normalize_manual_weld_id(value: str | None) -> str | None:
+    if not value:
+        return None
+    compact = value.strip().upper().replace(" ", "").replace("-", "")
+    if not compact:
+        return None
+    if compact.startswith("W") and compact[1:].isdigit() and len(compact) <= 5:
+        return f"W{compact[1:].zfill(2)}"
+    if compact.isdigit() and len(compact) <= 4:
+        return str(int(compact))
+    return value.strip().upper()
+
+
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
