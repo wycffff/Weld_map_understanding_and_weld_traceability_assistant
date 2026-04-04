@@ -15,6 +15,50 @@ from weld_assistant.services.progress import ProgressService
 
 
 class ProgressServiceTest(unittest.TestCase):
+    def test_manual_weld_registration_creates_traceable_row(self) -> None:
+        temp_root = Path("data/test_runs")
+        temp_root.mkdir(parents=True, exist_ok=True)
+        tmpdir = temp_root / f"progress_{uuid4().hex[:8]}"
+        tmpdir.mkdir(parents=True, exist_ok=True)
+        config = AppConfig.model_validate(
+            {
+                "pipeline": {"data_root": str(tmpdir)},
+                "database": {"path": str(tmpdir / "db" / "test.db")},
+            }
+        )
+        repo = SQLiteRepository(config)
+        repo.init_db()
+        progress = ProgressService(repo)
+
+        structured = StructuredDrawing(
+            document_id="doc_progress_manual",
+            drawing=DrawingData(drawing_number="DRAW-MANUAL", spool_name="DRAW-MANUAL"),
+            processing_log=ProcessingLog(
+                pipeline_version="0.1.0",
+                processed_at="2026-04-04T10:00:00+03:00",
+                layout_confidence="high",
+                ocr_engine="test",
+            ),
+        )
+        repo.import_structured_drawing(structured)
+
+        register_event = progress.register_weld(
+            "DRAW-MANUAL",
+            "W77",
+            location_description="Manual fallback entry",
+            operator="alice",
+            note="Created from UI fallback",
+        )
+        evidence = progress.link_photo("DRAW-MANUAL", "W77", b"fake-image", "w77.jpg", linked_by="alice")
+
+        weld = repo.get_weld("DRAW-MANUAL", "W77")
+        self.assertIsNotNone(weld)
+        self.assertEqual(weld["location_description"], "Manual fallback entry")
+        self.assertEqual(weld["needs_review"], 1)
+        self.assertEqual(register_event.event_type, "weld_registered")
+        self.assertEqual(len(repo.list_photo_evidence("DRAW-MANUAL", "W77")), 1)
+        self.assertTrue(Path(evidence.file_path).exists())
+
     def test_status_inspection_and_photo_linking_are_persisted_and_exported(self) -> None:
         temp_root = Path("data/test_runs")
         temp_root.mkdir(parents=True, exist_ok=True)

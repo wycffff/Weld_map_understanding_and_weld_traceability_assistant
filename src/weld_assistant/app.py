@@ -123,107 +123,154 @@ def format_drawing_option(drawing_number: str, matches) -> str:
 
 def render_traceability_workspace(st, repository: SQLiteRepository, progress_service: ProgressService, drawing_number: str) -> None:
     weld_rows = repository.list_welds(drawing_number)
-    if not weld_rows:
-        st.subheader("Weld Traceability")
-        st.caption("No weld rows are stored for this drawing yet.")
-        return
-
     st.subheader("Weld Traceability")
-    st.dataframe([dict(row) for row in weld_rows], use_container_width=True)
+    manual_tab, manage_tab = st.tabs(["Manual weld intake", "Manage stored welds"])
 
-    selected_weld_id = st.selectbox(
-        "Select weld",
-        options=[row["weld_id"] for row in weld_rows],
-        key=f"weld_select_{drawing_number}",
-    )
-    selected_weld = next(row for row in weld_rows if row["weld_id"] == selected_weld_id)
-
-    status_tab, inspection_tab, photo_tab, history_tab = st.tabs(
-        ["Status", "Inspection", "Photo evidence", "History"]
-    )
-
-    with status_tab:
-        with st.form(f"status_form_{drawing_number}_{selected_weld_id}"):
-            next_status = st.selectbox(
-                "Next status",
-                options=unique_options(selected_weld["status"], ["not_started", "in_progress", "done", "blocked"]),
-            )
-            operator = st.text_input("Operator", key=f"status_operator_{drawing_number}_{selected_weld_id}")
-            note = st.text_input("Note", key=f"status_note_{drawing_number}_{selected_weld_id}")
-            submitted = st.form_submit_button("Update status")
-        if submitted:
-            event = progress_service.update_status(
-                drawing_number=drawing_number,
-                weld_id=selected_weld_id,
-                to_status=next_status,
-                operator=operator or None,
-                note=note or None,
-            )
-            st.success(f"Status updated: {event.from_status} -> {event.to_status}")
-            st.rerun()
-
-    with inspection_tab:
-        with st.form(f"inspection_form_{drawing_number}_{selected_weld_id}"):
-            next_inspection = st.selectbox(
-                "Inspection status",
-                options=unique_options(selected_weld["inspection_status"], ["not_checked", "pending", "accepted", "rejected"]),
-            )
-            operator = st.text_input("Inspector", key=f"inspection_operator_{drawing_number}_{selected_weld_id}")
-            note = st.text_input("Inspection note", key=f"inspection_note_{drawing_number}_{selected_weld_id}")
-            submitted = st.form_submit_button("Update inspection")
-        if submitted:
-            event = progress_service.update_inspection(
-                drawing_number=drawing_number,
-                weld_id=selected_weld_id,
-                inspection_status=next_inspection,
-                operator=operator or None,
-                note=note or None,
-            )
-            st.success(f"Inspection updated: {event.from_status} -> {event.to_status}")
-            st.rerun()
-
-    with photo_tab:
-        uploaded_photo = st.file_uploader(
-            "Upload weld photo",
-            type=["png", "jpg", "jpeg", "webp"],
-            key=f"photo_upload_{drawing_number}_{selected_weld_id}",
+    with manual_tab:
+        st.caption(
+            "Use this when OCR/VLM did not create the weld row yet. "
+            "You can register a weld manually and optionally attach the first weld photo immediately."
         )
-        linked_by = st.text_input("Linked by", key=f"photo_operator_{drawing_number}_{selected_weld_id}")
-        note = st.text_input("Photo note", key=f"photo_note_{drawing_number}_{selected_weld_id}")
-        if st.button("Link photo to weld", key=f"photo_submit_{drawing_number}_{selected_weld_id}"):
-            if not uploaded_photo:
-                st.error("Choose a photo file first.")
+        with st.form(f"manual_weld_form_{drawing_number}"):
+            weld_id = st.text_input("Weld ID", key=f"manual_weld_id_{drawing_number}")
+            location_description = st.text_input("Location description", key=f"manual_weld_location_{drawing_number}")
+            operator = st.text_input("Recorded by", key=f"manual_weld_operator_{drawing_number}")
+            note = st.text_input("Registration note", key=f"manual_weld_note_{drawing_number}")
+            uploaded_photo = st.file_uploader(
+                "Optional first weld photo",
+                type=["png", "jpg", "jpeg", "webp"],
+                key=f"manual_weld_photo_{drawing_number}",
+            )
+            submitted = st.form_submit_button("Register weld")
+        if submitted:
+            if not weld_id.strip():
+                st.error("Enter a weld ID first.")
             else:
-                evidence = progress_service.link_photo(
+                event = progress_service.register_weld(
                     drawing_number=drawing_number,
-                    weld_id=selected_weld_id,
-                    file_bytes=uploaded_photo.getvalue(),
-                    filename=uploaded_photo.name,
-                    linked_by=linked_by or None,
-                    note=note or None,
+                    weld_id=weld_id.strip(),
+                    location_description=location_description.strip() or None,
+                    operator=operator.strip() or None,
+                    note=note.strip() or None,
                 )
-                st.success(f"Linked photo {evidence.photo_id} to {selected_weld_id}")
+                if uploaded_photo:
+                    evidence = progress_service.link_photo(
+                        drawing_number=drawing_number,
+                        weld_id=weld_id.strip(),
+                        file_bytes=uploaded_photo.getvalue(),
+                        filename=uploaded_photo.name,
+                        linked_by=operator.strip() or None,
+                        note=note.strip() or None,
+                    )
+                    st.success(f"Registered {event.weld_id} and linked photo {evidence.photo_id}.")
+                else:
+                    st.success(f"Registered weld {event.weld_id}.")
                 st.rerun()
 
-    with history_tab:
-        event_rows = repository.list_weld_progress(drawing_number, selected_weld_id)
-        photo_rows = repository.list_photo_evidence(drawing_number, selected_weld_id)
+    with manage_tab:
+        if not weld_rows:
+            st.caption("No weld rows are stored for this drawing yet. Use the manual intake tab above to create one.")
+            photo_rows = repository.list_photo_evidence(drawing_number)
+            if photo_rows:
+                st.caption("Drawing-level linked photos")
+                st.dataframe([dict(row) for row in photo_rows], use_container_width=True)
+            return
 
-        st.caption(f"Events for {drawing_number} / {selected_weld_id}")
-        if event_rows:
-            st.dataframe([dict(row) for row in event_rows], use_container_width=True)
-        else:
-            st.caption("No events recorded yet.")
+        st.dataframe([dict(row) for row in weld_rows], use_container_width=True)
 
-        st.caption("Linked photos")
-        if photo_rows:
-            st.dataframe([dict(row) for row in photo_rows], use_container_width=True)
-            preview_columns = st.columns(min(3, len(photo_rows)))
-            for index, row in enumerate(photo_rows[:3]):
-                with preview_columns[index % len(preview_columns)]:
-                    st.image(row["file_path"], caption=f"{row['photo_id']} | {row['linked_at']}")
-        else:
-            st.caption("No photos linked yet.")
+        selected_weld_id = st.selectbox(
+            "Select weld",
+            options=[row["weld_id"] for row in weld_rows],
+            key=f"weld_select_{drawing_number}",
+        )
+        selected_weld = next(row for row in weld_rows if row["weld_id"] == selected_weld_id)
+
+        status_tab, inspection_tab, photo_tab, history_tab = st.tabs(
+            ["Status", "Inspection", "Photo evidence", "History"]
+        )
+
+        with status_tab:
+            with st.form(f"status_form_{drawing_number}_{selected_weld_id}"):
+                next_status = st.selectbox(
+                    "Next status",
+                    options=unique_options(selected_weld["status"], ["not_started", "in_progress", "done", "blocked"]),
+                )
+                operator = st.text_input("Operator", key=f"status_operator_{drawing_number}_{selected_weld_id}")
+                note = st.text_input("Note", key=f"status_note_{drawing_number}_{selected_weld_id}")
+                submitted = st.form_submit_button("Update status")
+            if submitted:
+                event = progress_service.update_status(
+                    drawing_number=drawing_number,
+                    weld_id=selected_weld_id,
+                    to_status=next_status,
+                    operator=operator or None,
+                    note=note or None,
+                )
+                st.success(f"Status updated: {event.from_status} -> {event.to_status}")
+                st.rerun()
+
+        with inspection_tab:
+            with st.form(f"inspection_form_{drawing_number}_{selected_weld_id}"):
+                next_inspection = st.selectbox(
+                    "Inspection status",
+                    options=unique_options(selected_weld["inspection_status"], ["not_checked", "pending", "accepted", "rejected"]),
+                )
+                operator = st.text_input("Inspector", key=f"inspection_operator_{drawing_number}_{selected_weld_id}")
+                note = st.text_input("Inspection note", key=f"inspection_note_{drawing_number}_{selected_weld_id}")
+                submitted = st.form_submit_button("Update inspection")
+            if submitted:
+                event = progress_service.update_inspection(
+                    drawing_number=drawing_number,
+                    weld_id=selected_weld_id,
+                    inspection_status=next_inspection,
+                    operator=operator or None,
+                    note=note or None,
+                )
+                st.success(f"Inspection updated: {event.from_status} -> {event.to_status}")
+                st.rerun()
+
+        with photo_tab:
+            uploaded_photo = st.file_uploader(
+                "Upload weld photo",
+                type=["png", "jpg", "jpeg", "webp"],
+                key=f"photo_upload_{drawing_number}_{selected_weld_id}",
+            )
+            linked_by = st.text_input("Linked by", key=f"photo_operator_{drawing_number}_{selected_weld_id}")
+            note = st.text_input("Photo note", key=f"photo_note_{drawing_number}_{selected_weld_id}")
+            if st.button("Link photo to weld", key=f"photo_submit_{drawing_number}_{selected_weld_id}"):
+                if not uploaded_photo:
+                    st.error("Choose a photo file first.")
+                else:
+                    evidence = progress_service.link_photo(
+                        drawing_number=drawing_number,
+                        weld_id=selected_weld_id,
+                        file_bytes=uploaded_photo.getvalue(),
+                        filename=uploaded_photo.name,
+                        linked_by=linked_by or None,
+                        note=note or None,
+                    )
+                    st.success(f"Linked photo {evidence.photo_id} to {selected_weld_id}")
+                    st.rerun()
+
+        with history_tab:
+            event_rows = repository.list_weld_progress(drawing_number, selected_weld_id)
+            photo_rows = repository.list_photo_evidence(drawing_number, selected_weld_id)
+
+            st.caption(f"Events for {drawing_number} / {selected_weld_id}")
+            if event_rows:
+                st.dataframe([dict(row) for row in event_rows], use_container_width=True)
+            else:
+                st.caption("No events recorded yet.")
+
+            st.caption("Linked photos")
+            if photo_rows:
+                st.dataframe([dict(row) for row in photo_rows], use_container_width=True)
+                preview_columns = st.columns(min(3, len(photo_rows)))
+                for index, row in enumerate(photo_rows[:3]):
+                    with preview_columns[index % len(preview_columns)]:
+                        st.image(row["file_path"], caption=f"{row['photo_id']} | {row['linked_at']}")
+            else:
+                st.caption("No photos linked yet.")
 
 
 def unique_options(current_value: str | None, options: list[str]) -> list[str]:

@@ -14,6 +14,65 @@ class ProgressService:
     def __init__(self, repository: SQLiteRepository):
         self.repository = repository
 
+    def register_weld(
+        self,
+        drawing_number: str,
+        weld_id: str,
+        location_description: str | None = None,
+        operator: str | None = None,
+        note: str | None = None,
+        status: str = "not_started",
+        inspection_status: str = "not_checked",
+        needs_review: bool = True,
+    ) -> WeldProgressEvent:
+        created_at = datetime.now().astimezone()
+        with self.repository.connect() as connection:
+            drawing = connection.execute(
+                "SELECT drawing_number FROM drawing WHERE drawing_number = ?",
+                (drawing_number,),
+            ).fetchone()
+            if not drawing:
+                raise ValueError(f"Drawing not found: {drawing_number}")
+
+            existing = connection.execute(
+                "SELECT weld_id FROM weld WHERE drawing_number = ? AND weld_id = ?",
+                (drawing_number, weld_id),
+            ).fetchone()
+            if existing:
+                raise ValueError(f"Weld already exists: {drawing_number}/{weld_id}")
+
+            connection.execute(
+                """
+                INSERT INTO weld (
+                  drawing_number, weld_id, location_description, status,
+                  inspection_status, ocr_confidence, needs_review, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    drawing_number,
+                    weld_id,
+                    location_description,
+                    status,
+                    inspection_status,
+                    None,
+                    int(needs_review),
+                    created_at.isoformat(),
+                ),
+            )
+
+            event = self._build_event(
+                event_id=f"ev_{uuid4().hex[:10]}",
+                drawing_number=drawing_number,
+                weld_id=weld_id,
+                event_type="weld_registered",
+                from_status=None,
+                to_status=status,
+                operator=operator,
+                note=note or "Weld was added manually.",
+            )
+            self._insert_event(connection, event)
+            return event
+
     def update_status(self, drawing_number: str, weld_id: str, to_status: str, operator: str | None = None, note: str | None = None) -> WeldProgressEvent:
         with self.repository.connect() as connection:
             weld = self._require_weld(connection, drawing_number, weld_id)

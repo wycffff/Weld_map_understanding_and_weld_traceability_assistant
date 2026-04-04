@@ -163,6 +163,7 @@ The web UI supports:
 
 - Uploading and processing a new drawing.
 - Choosing whether to use VLM assistance for a specific run.
+- Manually registering a weld when OCR/VLM did not create one yet.
 - Previewing generated ROIs.
 - Searching existing reports by drawing number, spool name, or document ID.
 - Updating weld status and inspection status.
@@ -173,6 +174,7 @@ The web UI supports:
 
 Search is normalized so queries like `C52`, `c-52`, or partial drawing fragments can still return matches.
 VLM assistance is visible in the UI status banner and can be enabled per run. On the current machine the local Ollama runtime is CPU-bound, so selective use is recommended.
+When a drawing has no stored weld rows yet, the UI now exposes a manual weld-intake flow so users can still register a weld ID first and then attach photos and progress events.
 
 ## CLI Commands
 
@@ -222,5 +224,6 @@ This baseline is intentionally incomplete. The current focus is reliable modular
 
 - Replace review-first `WELDING LIST` row-count inference with cell-level weld-list parsing.
 - Improve parts-list normalization so more `C-52` rows keep usable descriptions and materials.
+- Expand the M5 task planner for bigger local models on 24GB-class GPUs while keeping the current small-model prompts bounded and short.
 - Strengthen low-resolution fallback for stacked isometric pages.
 - Add more evaluation metrics and regression outputs for real samples.
