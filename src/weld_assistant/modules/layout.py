@@ -26,10 +26,12 @@ class RegionPlanner:
     def _plan_manual(self, doc: PreprocessedDocument, ocr_preview: OCRResult | None = None) -> LayoutPlan:
         config_path = Path(self.config.layout.manual_roi_config)
         raw = json.loads(config_path.read_text(encoding="utf-8"))
+        profile = self._detect_document_profile(doc, ocr_preview)
         templates = (
             raw.get(doc.document_id)
             or raw.get((doc.source_filename or "").lower())
             or raw.get(doc.source_filename or "")
+            or raw.get(f"profile:{profile}")
             or raw.get("default")
             or []
         )
@@ -44,7 +46,12 @@ class RegionPlanner:
         return LayoutPlan(
             document_id=doc.document_id,
             rois=rois,
-            layout_log={"method": "manual", "layout_confidence": "medium", "fallback_used": False},
+            layout_log={
+                "method": "manual",
+                "layout_confidence": "medium",
+                "fallback_used": False,
+                "document_profile": profile,
+            },
         )
 
     def _plan_auto(self, doc: PreprocessedDocument, ocr_preview: OCRResult | None = None) -> LayoutPlan:
@@ -157,3 +164,19 @@ class RegionPlanner:
             output_path = self.roi_dir / f"{doc.document_id}_{roi.roi_id}.png"
             cropped.save(output_path)
             roi.image_path = str(output_path)
+
+    @staticmethod
+    def _detect_document_profile(doc: PreprocessedDocument, ocr_preview: OCRResult | None) -> str:
+        if not ocr_preview:
+            return "default"
+
+        texts = " ".join(token.text.upper() for token in ocr_preview.tokens)
+        if any(keyword in texts for keyword in ("ERECTIONMATERIALS", "FABRICATIONMATERIALS", "WELDINGLIST")):
+            return "welding_map_sheet"
+        if "PARTSLIST" in texts or (("WPS" in texts or "WPQR" in texts or "WPOREID" in texts) and re.search(r"\bW\d+\b", texts)):
+            return "fabrication_weld_sheet"
+        if texts.count("ISOMETRICDRAWING") >= 2:
+            return "dual_isometric_sheet"
+        if "BILLOFMATERIALS" in texts:
+            return "simple_spool"
+        return "default"

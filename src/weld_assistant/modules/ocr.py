@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 from PIL import Image
@@ -79,7 +80,7 @@ class PaddleOCREngine(BaseOCREngine):
             if confidence < self.config.ocr.confidence_threshold:
                 continue
             bbox = self._points_to_bbox(points)
-            normalized, raw_text, corrected = normalize_token_text(text)
+            normalized, raw_text, corrected = normalize_token_text_safe(text)
             tokens.append(
                 OCRToken(
                     text=normalized,
@@ -141,7 +142,7 @@ class RapidOCREngine(BaseOCREngine):
             if confidence < self.config.ocr.confidence_threshold:
                 continue
             bbox = self._points_to_bbox(points)
-            normalized, raw_text, corrected = normalize_token_text(text)
+            normalized, raw_text, corrected = normalize_token_text_safe(text)
             tokens.append(
                 OCRToken(
                     text=normalized,
@@ -192,23 +193,29 @@ def normalize_token_text(text: str) -> tuple[str, str, bool]:
     return normalized, raw, corrected
 
 
+def normalize_token_text_safe(text: str) -> tuple[str, str, bool]:
+    raw = text.strip()
+    normalized = (
+        raw.replace("〞", "-")
+        .replace("每", "-")
+        .replace("–", "-")
+        .replace("—", "-")
+        .replace("−", "-")
+        .replace(" ", "")
+    )
+    normalized = re.sub(r"(?<=W-)I", "1", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?<=W-)O", "0", normalized, flags=re.IGNORECASE)
+    corrected = normalized != raw
+    return normalized, raw, corrected
+
+
 def build_table_from_tokens(roi_id: str, tokens: list[OCRToken], row_tolerance: int = 8) -> OCRTable:
     if not tokens:
         return OCRTable(roi_id=roi_id, cells=[], html=None, confidence=0.0)
 
     sorted_tokens = sorted(tokens, key=lambda token: ((token.bbox[1] + token.bbox[3]) / 2, token.bbox[0]))
-    rows: list[list[OCRToken]] = []
-    for token in sorted_tokens:
-        y_center = (token.bbox[1] + token.bbox[3]) / 2
-        if not rows:
-            rows.append([token])
-            continue
-        last_row = rows[-1]
-        last_center = sum((item.bbox[1] + item.bbox[3]) / 2 for item in last_row) / len(last_row)
-        if abs(y_center - last_center) <= row_tolerance:
-            last_row.append(token)
-        else:
-            rows.append([token])
+    adaptive_tolerance = max(row_tolerance, _adaptive_row_tolerance(sorted_tokens))
+    rows = _cluster_tokens_by_y(sorted_tokens, adaptive_tolerance)
 
     def header_score(row: list[OCRToken]) -> tuple[int, int]:
         score = sum(1 for token in row if _looks_like_bom_header(token.text))
@@ -250,3 +257,26 @@ def _looks_like_bom_header(text: str) -> bool:
         upper.startswith(("TA", "DES", "QT", "GT", "MA", "XA", "IT", "NO"))
         or upper in {"QTY", "GTY", "MAT", "XAT", "TAG", "TAO", "ITEM", "NO"}
     )
+
+
+def _adaptive_row_tolerance(tokens: list[OCRToken]) -> int:
+    heights = [max(1, token.bbox[3] - token.bbox[1]) for token in tokens]
+    if not heights:
+        return 0
+    return min(80, max(40, int(median(heights) * 0.9)))
+
+
+def _cluster_tokens_by_y(tokens: list[OCRToken], row_tolerance: int) -> list[list[OCRToken]]:
+    rows: list[list[OCRToken]] = []
+    for token in tokens:
+        y_center = (token.bbox[1] + token.bbox[3]) / 2
+        if not rows:
+            rows.append([token])
+            continue
+        last_row = rows[-1]
+        last_center = sum((item.bbox[1] + item.bbox[3]) / 2 for item in last_row) / len(last_row)
+        if abs(y_center - last_center) <= row_tolerance:
+            last_row.append(token)
+        else:
+            rows.append([token])
+    return rows

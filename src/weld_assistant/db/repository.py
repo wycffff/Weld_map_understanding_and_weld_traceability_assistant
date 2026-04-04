@@ -47,10 +47,18 @@ class SQLiteRepository:
                 raise ValueError(f"drawing_number already exists: {drawing_number}")
 
             if overwrite:
-                connection.execute("DELETE FROM bom_item WHERE drawing_number = ?", (drawing_number,))
-                connection.execute("DELETE FROM weld WHERE drawing_number = ?", (drawing_number,))
-                connection.execute("DELETE FROM review_queue WHERE drawing_number = ?", (drawing_number,))
-                connection.execute("DELETE FROM drawing WHERE drawing_number = ?", (drawing_number,))
+                previous_numbers = [
+                    row["drawing_number"]
+                    for row in connection.execute(
+                        "SELECT drawing_number FROM drawing WHERE drawing_number = ? OR document_id = ?",
+                        (drawing_number, drawing.document_id),
+                    ).fetchall()
+                ]
+                for previous_number in previous_numbers:
+                    connection.execute("DELETE FROM bom_item WHERE drawing_number = ?", (previous_number,))
+                    connection.execute("DELETE FROM weld WHERE drawing_number = ?", (previous_number,))
+                    connection.execute("DELETE FROM review_queue WHERE drawing_number = ?", (previous_number,))
+                    connection.execute("DELETE FROM drawing WHERE drawing_number = ?", (previous_number,))
 
             connection.execute(
                 """

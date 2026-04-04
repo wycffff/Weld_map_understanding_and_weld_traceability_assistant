@@ -46,6 +46,53 @@ class RepositoryTest(unittest.TestCase):
         self.assertEqual(len(welds), 1)
         self.assertEqual(len(bom_items), 1)
 
+    def test_overwrite_replaces_rows_by_document_id(self) -> None:
+        temp_root = Path("data/test_runs")
+        temp_root.mkdir(parents=True, exist_ok=True)
+        tmpdir = temp_root / f"repo_{uuid4().hex[:8]}"
+        tmpdir.mkdir(parents=True, exist_ok=True)
+        config = AppConfig.model_validate(
+            {
+                "pipeline": {"data_root": str(tmpdir)},
+                "database": {"path": str(tmpdir / "db" / "test.db")},
+            }
+        )
+        repo = SQLiteRepository(config)
+        repo.init_db()
+
+        original = StructuredDrawing(
+            document_id="doc_test_same",
+            drawing=DrawingData(drawing_number="OLD-001", spool_name="OLD-001"),
+            bom=[BOMItem(line_no=1, tag="OLD", qty="1", material="ASTM A105")],
+            welds=[WeldItem(weld_id="W01", confidence=0.95)],
+            processing_log=ProcessingLog(
+                pipeline_version="0.1.0",
+                processed_at="2026-04-04T10:00:00+03:00",
+                layout_confidence="high",
+                ocr_engine="test",
+            ),
+        )
+        updated = StructuredDrawing(
+            document_id="doc_test_same",
+            drawing=DrawingData(drawing_number="NEW-001", spool_name="NEW-001"),
+            bom=[BOMItem(line_no=1, tag="NEW", qty="2", material="ASTM A106")],
+            welds=[WeldItem(weld_id="W02", confidence=0.96)],
+            processing_log=ProcessingLog(
+                pipeline_version="0.1.0",
+                processed_at="2026-04-04T10:05:00+03:00",
+                layout_confidence="high",
+                ocr_engine="test",
+            ),
+        )
+
+        repo.import_structured_drawing(original)
+        repo.import_structured_drawing(updated, overwrite=True)
+
+        self.assertIsNone(repo.get_drawing("OLD-001"))
+        self.assertIsNotNone(repo.get_drawing("NEW-001"))
+        self.assertEqual([row["weld_id"] for row in repo.list_welds("NEW-001")], ["W02"])
+        self.assertEqual([row["tag"] for row in repo.list_bom_items("NEW-001")], ["NEW"])
+
 
 if __name__ == "__main__":
     unittest.main()

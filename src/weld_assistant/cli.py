@@ -21,6 +21,12 @@ def build_parser() -> argparse.ArgumentParser:
     parse_cmd.add_argument("--persist", action="store_true")
     parse_cmd.add_argument("--overwrite", action="store_true")
 
+    parse_batch_cmd = subparsers.add_parser("parse-batch")
+    parse_batch_cmd.add_argument("--input-dir", required=True)
+    parse_batch_cmd.add_argument("--output", default="data/final/batch_summary.json")
+    parse_batch_cmd.add_argument("--persist", action="store_true")
+    parse_batch_cmd.add_argument("--overwrite", action="store_true")
+
     init_db_cmd = subparsers.add_parser("init-db")
 
     export_cmd = subparsers.add_parser("export")
@@ -48,6 +54,26 @@ def main() -> None:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
+    if args.command == "parse-batch":
+        input_dir = Path(args.input_dir)
+        files = [path for path in sorted(input_dir.iterdir()) if path.is_file()]
+        summary: list[dict[str, object]] = []
+        for path in files:
+            structured = pipeline.process_file(path, persist=args.persist, overwrite=args.overwrite)
+            summary.append(
+                {
+                    "input_file": str(path),
+                    "document_id": structured.document_id,
+                    "drawing_number": structured.drawing.drawing_number,
+                    "bom_count": len(structured.bom),
+                    "weld_count": len(structured.welds),
+                    "review_count": len(structured.needs_review_items),
+                }
+            )
+        Path(args.output).write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return
+
     if args.command == "init-db":
         pipeline.repository.init_db()
         print(f"Initialized database at {config.database.path}")
@@ -65,4 +91,3 @@ def main() -> None:
         schema_path = pipeline.write_schema(args.output)
         print(schema_path)
         return
-
