@@ -1,0 +1,67 @@
+pipeline:
+  version: "0.1.0"
+  data_root: "data"
+
+preprocessing:
+  max_width: 2400
+  versions:
+    - clean
+    - strong
+  deskew_max_angle: 30
+
+layout:
+  mode: "manual"
+  manual_roi_config: "config/roi_template_default.json"
+  bom_keywords:
+    - "BILL OF MATERIALS"
+    - "BOM"
+    - "MATERIAL LIST"
+  titleblock_keywords:
+    - "DRAWING NO"
+    - "DWG NO"
+    - "REV"
+  weld_id_pattern: "^W[- ]?\\d+$"
+  weld_roi_padding_px: 80
+  weld_roi_overlap: 0.2
+
+ocr:
+  engine: "paddleocr"
+  lang: "en"
+  use_gpu: false
+  table_enabled: true
+  confidence_threshold: 0.5
+  char_correction:
+    digit_positions: true
+
+vlm:
+  enabled: false
+  model: "qwen3.5:0.8b"
+  temperature: 0
+  num_ctx: 4096
+  max_retries: 2
+
+fusion:
+  ocr_primary_confidence_threshold: 0.8
+  conflict_strategy: "needs_review"
+  schema_version: "1.1"
+
+database:
+  type: "sqlite"
+  path: "data/db/weld_traceability.db"
+
+export:
+  output_dir: "data/final"
+  csv_fields:
+    - drawing_number
+    - weld_id
+    - status
+    - completed_by
+    - completed_at
+    - inspection_status
+    - last_photo_id
+    - last_photo_path
+
+ui:
+  max_upload_mb: 200
+  show_roi_preview: true
+

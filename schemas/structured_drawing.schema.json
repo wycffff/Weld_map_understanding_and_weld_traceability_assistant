@@ -1,0 +1,434 @@
+{
+  "$defs": {
+    "BOMItem": {
+      "properties": {
+        "line_no": {
+          "title": "Line No",
+          "type": "integer"
+        },
+        "tag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tag"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "qty": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Qty"
+        },
+        "uom": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uom"
+        },
+        "material": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Material"
+        },
+        "confidence": {
+          "default": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "source": {
+          "default": "ocr_table",
+          "title": "Source",
+          "type": "string"
+        },
+        "needs_review": {
+          "default": false,
+          "title": "Needs Review",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "line_no"
+      ],
+      "title": "BOMItem",
+      "type": "object"
+    },
+    "DrawingData": {
+      "properties": {
+        "drawing_number": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Drawing Number"
+        },
+        "spool_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spool Name"
+        },
+        "pipe_size": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pipe Size"
+        },
+        "material_spec": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Material Spec"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "project_number": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Number"
+        }
+      },
+      "title": "DrawingData",
+      "type": "object"
+    },
+    "ProcessingLog": {
+      "properties": {
+        "pipeline_version": {
+          "title": "Pipeline Version",
+          "type": "string"
+        },
+        "processed_at": {
+          "format": "date-time",
+          "title": "Processed At",
+          "type": "string"
+        },
+        "layout_confidence": {
+          "default": "unknown",
+          "title": "Layout Confidence",
+          "type": "string"
+        },
+        "ocr_engine": {
+          "title": "Ocr Engine",
+          "type": "string"
+        },
+        "vlm_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vlm Model"
+        }
+      },
+      "required": [
+        "pipeline_version",
+        "processed_at",
+        "ocr_engine"
+      ],
+      "title": "ProcessingLog",
+      "type": "object"
+    },
+    "ReviewItem": {
+      "properties": {
+        "item_type": {
+          "title": "Item Type",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "roi_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roi Id"
+        },
+        "ocr_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ocr Value"
+        },
+        "vlm_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vlm Value"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "type": "object"
+        },
+        "roi_image_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roi Image Path"
+        }
+      },
+      "required": [
+        "item_type",
+        "field",
+        "message"
+      ],
+      "title": "ReviewItem",
+      "type": "object"
+    },
+    "WeldItem": {
+      "properties": {
+        "weld_id": {
+          "title": "Weld Id",
+          "type": "string"
+        },
+        "location_description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location Description"
+        },
+        "status": {
+          "default": "not_started",
+          "title": "Status",
+          "type": "string"
+        },
+        "inspection_status": {
+          "default": "not_checked",
+          "title": "Inspection Status",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "needs_review": {
+          "default": false,
+          "title": "Needs Review",
+          "type": "boolean"
+        },
+        "provenance": {
+          "$ref": "#/$defs/WeldProvenance"
+        }
+      },
+      "required": [
+        "weld_id"
+      ],
+      "title": "WeldItem",
+      "type": "object"
+    },
+    "WeldProvenance": {
+      "properties": {
+        "ocr_token_bbox": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ocr Token Bbox"
+        },
+        "roi_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roi Id"
+        },
+        "ocr_confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ocr Confidence"
+        },
+        "vlm_used": {
+          "default": false,
+          "title": "Vlm Used",
+          "type": "boolean"
+        },
+        "correction_applied": {
+          "default": false,
+          "title": "Correction Applied",
+          "type": "boolean"
+        }
+      },
+      "title": "WeldProvenance",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "document_id": {
+      "title": "Document Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "1.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "drawing": {
+      "$ref": "#/$defs/DrawingData"
+    },
+    "bom": {
+      "items": {
+        "$ref": "#/$defs/BOMItem"
+      },
+      "title": "Bom",
+      "type": "array"
+    },
+    "welds": {
+      "items": {
+        "$ref": "#/$defs/WeldItem"
+      },
+      "title": "Welds",
+      "type": "array"
+    },
+    "needs_review_items": {
+      "items": {
+        "$ref": "#/$defs/ReviewItem"
+      },
+      "title": "Needs Review Items",
+      "type": "array"
+    },
+    "processing_log": {
+      "$ref": "#/$defs/ProcessingLog"
+    }
+  },
+  "required": [
+    "document_id",
+    "drawing",
+    "processing_log"
+  ],
+  "title": "StructuredDrawing",
+  "type": "object"
+}

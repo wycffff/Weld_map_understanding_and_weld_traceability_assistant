@@ -1,0 +1,26 @@
+{
+  "default": [
+    {
+      "roi_id": "titleblock",
+      "type": "roi_titleblock",
+      "bbox_ratio": [0.68, 0.74, 0.98, 0.98],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "bom",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.62, 0.18, 0.98, 0.70],
+      "overlap": 0.1,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "iso",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.02, 0.02, 0.94, 0.92],
+      "overlap": 0.05,
+      "source_image_version": "clean"
+    }
+  ]
+}
+
