@@ -8,7 +8,14 @@ from PIL import Image, ImageDraw
 
 from weld_assistant.config import AppConfig
 from weld_assistant.contracts import DrawingData, LayoutPlan, OCRResult, OCRTable, OCRTableCell, OCRToken, ROI, VLMResult, VLMTaskResult
-from weld_assistant.modules.fusion import FusionEngine, build_bom_item, map_bom_table, map_weld_list_table, normalize_weld_id_by_patterns
+from weld_assistant.modules.fusion import (
+    FusionEngine,
+    build_bom_item,
+    map_bom_table,
+    map_weld_list_table,
+    normalize_bom_quantity,
+    normalize_weld_id_by_patterns,
+)
 
 
 class FusionEngineTest(unittest.TestCase):
@@ -349,6 +356,38 @@ class FusionEngineTest(unittest.TestCase):
         self.assertEqual(rows[1]["description"], "RING SUPPORT")
         self.assertEqual(raw_cols, {})
 
+    def test_map_bom_table_skips_group_headers_and_stops_before_weld_list(self) -> None:
+        rows, raw_cols = map_bom_table(
+            [
+                OCRTableCell(row=0, col=3, text="BILL OF MATERIAL", confidence=0.99),
+                OCRTableCell(row=1, col=0, text="No", confidence=0.95),
+                OCRTableCell(row=1, col=1, text="Length", confidence=0.95),
+                OCRTableCell(row=1, col=4, text="Description", confidence=0.95),
+                OCRTableCell(row=1, col=5, text="Material", confidence=0.95),
+                OCRTableCell(row=2, col=0, text="1", confidence=0.91),
+                OCRTableCell(row=2, col=1, text='3\'-1"', confidence=0.91),
+                OCRTableCell(row=2, col=4, text="PIPE SMLS BEXBE", confidence=0.91),
+                OCRTableCell(row=2, col=5, text="A106 GR. B", confidence=0.91),
+                OCRTableCell(row=3, col=4, text="Flanges", confidence=0.94),
+                OCRTableCell(row=4, col=0, text="No", confidence=0.95),
+                OCRTableCell(row=4, col=1, text="Qty", confidence=0.95),
+                OCRTableCell(row=4, col=4, text="Description", confidence=0.95),
+                OCRTableCell(row=4, col=5, text="Material", confidence=0.95),
+                OCRTableCell(row=5, col=1, text="1", confidence=0.91),
+                OCRTableCell(row=5, col=4, text="FLANGE RF WN", confidence=0.91),
+                OCRTableCell(row=5, col=5, text="A105 GR II", confidence=0.91),
+                OCRTableCell(row=6, col=4, text="VELD LIST", confidence=0.96),
+                OCRTableCell(row=7, col=0, text="Weld ID", confidence=0.96),
+                OCRTableCell(row=7, col=1, text="Welder ID", confidence=0.96),
+            ]
+        )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["qty"], '3\'-1"')
+        self.assertEqual(rows[0]["description"], "PIPE SMLS BEXBE")
+        self.assertEqual(rows[1]["description"], "FLANGE RF WN")
+        self.assertEqual(raw_cols, {})
+
     def test_map_weld_list_table_uses_semantic_headers(self) -> None:
         rows, raw_cols = map_weld_list_table(
             [
@@ -385,6 +424,66 @@ class FusionEngineTest(unittest.TestCase):
         self.assertEqual(normalize_weld_id_by_patterns("A", patterns), "A")
         self.assertEqual(normalize_weld_id_by_patterns("001", patterns), "001")
         self.assertEqual(normalize_weld_id_by_patterns("G1-1", patterns), "G1-1")
+
+    def test_normalize_bom_quantity_preserves_imperial_lengths(self) -> None:
+        self.assertEqual(normalize_bom_quantity('3\'-1"', None, None), ('3\'-1"', None, False))
+        self.assertEqual(normalize_bom_quantity("147/8*", None, None), ("147/8*", None, False))
+        self.assertEqual(normalize_bom_quantity("0-1178", None, None), ("0-1178", None, False))
+
+    def test_build_bom_item_uses_line_number_as_simple_spool_tag(self) -> None:
+        drawing = DrawingData(drawing_number="SG-3-HWS-SP-0001A", drawing_type="simple_spool")
+        item, issues = build_bom_item(
+            line_no=4,
+            row={
+                "confidence": 0.91,
+                "qty": "1",
+                "description": "FLANGE RF WN",
+                "material": "A105 GR II",
+            },
+            drawing=drawing,
+            fallback_confidence=0.91,
+        )
+
+        self.assertEqual(item.tag, "4")
+        self.assertEqual(item.qty, "1")
+        self.assertIn("heuristic_normalization", issues)
+
+    def test_build_bom_item_prefers_simple_spool_length_column_for_qty(self) -> None:
+        drawing = DrawingData(drawing_number="SG-3-HWS-SP-0001A", drawing_type="simple_spool")
+        item, _ = build_bom_item(
+            line_no=1,
+            row={
+                "confidence": 0.95,
+                "qty": "1",
+                "raw_col_1": '3\'-1"',
+                "raw_col_2": "4",
+                "description": "PIPESMLSBEXBE",
+                "material": "A106GR.B",
+            },
+            drawing=drawing,
+            fallback_confidence=0.95,
+        )
+
+        self.assertEqual(item.tag, "1")
+        self.assertEqual(item.qty, '3\'-1"')
+
+    def test_build_bom_item_ignores_imperial_value_as_simple_spool_tag(self) -> None:
+        drawing = DrawingData(drawing_number="SG-3-HWS-SP-0001A", drawing_type="simple_spool")
+        item, _ = build_bom_item(
+            line_no=3,
+            row={
+                "confidence": 0.95,
+                "qty": "3",
+                "raw_col_1": "0-1178",
+                "description": "PIPESMLSBEXBE",
+                "material": "A106GR.B",
+            },
+            drawing=drawing,
+            fallback_confidence=0.95,
+        )
+
+        self.assertEqual(item.tag, "3")
+        self.assertEqual(item.qty, "0-1178")
 
 
 if __name__ == "__main__":

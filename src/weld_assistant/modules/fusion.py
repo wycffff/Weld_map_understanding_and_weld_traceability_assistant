@@ -588,8 +588,10 @@ def map_bom_table(cells) -> tuple[list[dict], dict[int, str]]:
         else:
             raw_cols[col] = text
 
-    mapping = refine_bom_mappings(rows, mapping, auxiliary_mapping)
-    inferred_mapping = infer_missing_bom_mappings(rows, mapping, auxiliary_mapping)
+    body_rows = filter_bom_body_rows(rows, header_row_index)
+
+    mapping = refine_bom_mappings(body_rows, mapping, auxiliary_mapping)
+    inferred_mapping = infer_missing_bom_mappings(body_rows, mapping, auxiliary_mapping)
     for col, semantic in inferred_mapping.items():
         mapping[col] = semantic
     for col in list(raw_cols):
@@ -597,9 +599,7 @@ def map_bom_table(cells) -> tuple[list[dict], dict[int, str]]:
             raw_cols.pop(col, None)
 
     result_rows: list[dict] = []
-    for row_number, row in sorted(rows.items()):
-        if row_number < header_row_index:
-            continue
+    for row in body_rows.values():
         row_payload: dict[str, str | float | None] = {"confidence": 0.0}
         confidences: list[float] = []
         for col, values in row.items():
@@ -762,6 +762,8 @@ def classify_bom_header(text: str) -> str | None:
     if not normalized or normalized in {
         "PARTSLIST",
         "BILLOFMATERIALS",
+        "BILLOFMATERIAL",
+        "BILLOFMATERNAL",
         "MATERIALLIST",
         "ERECTIONMATERIALS",
         "FABRICATIONMATERIALS",
@@ -783,12 +785,47 @@ def classify_bom_header(text: str) -> str | None:
 
 
 def choose_bom_header_row(rows: dict[int, dict[int, list[tuple[str, float]]]]) -> int:
+    def hits(row: dict[int, list[tuple[str, float]]]) -> int:
+        values = [" ".join(text for text, _ in entries) for entries in row.values()]
+        return sum(1 for text in values if classify_bom_header(text))
+
+    for row_idx in sorted(rows):
+        if hits(rows[row_idx]) >= 2:
+            return row_idx
+
     def score(row: dict[int, list[tuple[str, float]]]) -> tuple[int, int]:
         values = [" ".join(text for text, _ in entries) for entries in row.values()]
         header_hits = sum(1 for text in values if classify_bom_header(text))
         return header_hits, len(values)
 
     return max(rows.items(), key=lambda item: score(item[1]))[0]
+
+
+BOM_GROUP_HEADER_WORDS = (
+    "PIPE",
+    "PIPES",
+    "FLANGES",
+    "FLANGE",
+    "WELDFITTINGS",
+    "FITTINGS",
+    "VALVES",
+    "BOLTS",
+    "GASKETS",
+    "STUDS",
+)
+
+
+BOM_STOP_WORDS = (
+    "WELDLIST",
+    "WELDNO",
+    "WELDINGLIST",
+    "WELDCOUNT",
+    "NDETYPE",
+    "SIGNOFFID",
+    "WELDERID",
+    "DATEWELDED",
+    "WELDLOG",
+)
 
 
 BOM_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
@@ -823,6 +860,50 @@ def header_similarity(left: str, right: str) -> float:
     if left in right or right in left:
         ratio = max(ratio, min(len(left), len(right)) / max(len(left), len(right)))
     return ratio
+
+
+def normalized_row_texts(row: dict[int, list[tuple[str, float]]]) -> list[str]:
+    texts = [
+        normalize_header_text("".join(part for part, _ in values))
+        for _, values in sorted(row.items())
+    ]
+    return [text for text in texts if text]
+
+
+def looks_like_bom_group_header(text: str) -> bool:
+    return any(
+        text == alias or (abs(len(text) - len(alias)) <= 2 and header_similarity(text, alias) >= 0.72)
+        for alias in BOM_GROUP_HEADER_WORDS
+    )
+
+
+def looks_like_bom_stop_marker(text: str) -> bool:
+    return any(
+        text == alias
+        or (len(text) >= 6 and (alias in text or text in alias))
+        or (abs(len(text) - len(alias)) <= 2 and header_similarity(text, alias) >= 0.78)
+        for alias in BOM_STOP_WORDS
+    )
+
+
+def filter_bom_body_rows(
+    rows: dict[int, dict[int, list[tuple[str, float]]]],
+    header_row_index: int,
+) -> dict[int, dict[int, list[tuple[str, float]]]]:
+    body_rows: dict[int, dict[int, list[tuple[str, float]]]] = {}
+    for row_number, row in sorted(rows.items()):
+        if row_number < header_row_index:
+            continue
+        non_empty = normalized_row_texts(row)
+        if any(looks_like_bom_stop_marker(text) for text in non_empty):
+            break
+        if len(non_empty) == 1 and looks_like_bom_group_header(non_empty[0]):
+            continue
+        sub_header_hits = sum(1 for text in non_empty if classify_bom_header(text))
+        if sub_header_hits >= 2 and row_number != header_row_index:
+            continue
+        body_rows[row_number] = row
+    return body_rows
 
 
 def classify_weld_list_header(text: str) -> str | None:
@@ -874,7 +955,7 @@ def infer_missing_bom_mappings(
     wanted_fields = [field for field in ("tag", "description", "qty", "material") if field not in mapping.values()]
     minimum_scores = {
         "tag": 0.55,
-        "description": 0.55,
+        "description": 0.35,
         "qty": 0.50,
         "material": 0.55,
     }
@@ -942,8 +1023,8 @@ def bom_column_semantic_score(field: str, values: list[str]) -> float:
     coverage = min(1.0, len(cleaned) / 4.0)
 
     if field == "qty":
-        numeric_hits = sum(1 for value in cleaned if re.fullmatch(r"\d{1,3}", value))
-        return (numeric_hits / len(cleaned)) * coverage
+        quantity_hits = sum(1 for value in cleaned if looks_like_quantity_value(value))
+        return (quantity_hits / len(cleaned)) * coverage
 
     if field == "tag":
         tag_hits = sum(1 for value in cleaned if looks_like_bom_tag_candidate(value))
@@ -1081,6 +1162,30 @@ def looks_like_bom_tag_candidate(value: str) -> bool:
     return False
 
 
+def looks_like_imperial_quantity(value: str) -> bool:
+    compact = value.strip().replace(" ", "")
+    if not compact:
+        return False
+    if not any(marker in compact for marker in ("'", '"', "/", ".", "-")):
+        return False
+    if re.search(r"[A-Z]", compact):
+        return False
+    if not re.fullmatch(r"[0-9'\"*/.\-]+", compact):
+        return False
+    return len(compact) >= 4
+
+
+def looks_like_quantity_value(value: str) -> bool:
+    stripped = value.strip().upper()
+    if not stripped:
+        return False
+    if re.fullmatch(r"\d{1,4}", stripped):
+        return True
+    if re.fullmatch(r"\d{1,4}\s*[A-Z]{1,5}", stripped):
+        return True
+    return looks_like_imperial_quantity(stripped)
+
+
 def looks_like_material_value(value: str) -> bool:
     compact = re.sub(r"[^A-Z0-9]", "", value.upper())
     return bool("ASTM" in compact or re.search(r"A\d{3}", compact))
@@ -1112,8 +1217,12 @@ def build_bom_item(
     raw_material = stringify_cell(row.get("material"))
 
     tag_seed, description_from_tag = split_bom_tag_and_description(raw_tag or infer_tag_from_raw_columns(raw_columns))
+    if drawing.drawing_type == "simple_spool" and tag_seed and looks_like_imperial_quantity(tag_seed):
+        tag_seed = None
     description_seed = raw_description or description_from_tag or infer_description_from_raw_columns(raw_columns)
     qty_seed = raw_qty or infer_qty_from_raw_columns(raw_columns)
+    if drawing.drawing_type == "simple_spool":
+        qty_seed = select_simple_spool_qty_seed(line_no, raw_qty, raw_columns) or qty_seed
     material_seed = raw_material or infer_material_from_raw_columns(raw_columns)
 
     description, description_inferred = normalize_bom_description(description_seed, drawing.pipe_size)
@@ -1128,6 +1237,12 @@ def build_bom_item(
     if not qty and description and description.upper().startswith("PIPE") and tag and re.fullmatch(r"\d{3}-\d{2}", tag):
         qty = "1"
         qty_inferred = True
+    if drawing.drawing_type == "simple_spool" and line_no and description and (not tag_seed) and tag_inferred:
+        tag = str(line_no)
+        tag_inferred = True
+    elif not tag and drawing.drawing_type == "simple_spool" and line_no and description:
+        tag = str(line_no)
+        tag_inferred = True
     material, material_inferred = normalize_bom_material(material_seed, description, drawing.material_spec)
 
     issues: list[str] = []
@@ -1226,6 +1341,10 @@ def infer_description_from_raw_columns(raw_columns: list[tuple[int, str]]) -> st
 
 
 def infer_qty_from_raw_columns(raw_columns: list[tuple[int, str]]) -> str | None:
+    imperial_candidates = [text.strip() for _, text in raw_columns if looks_like_imperial_quantity(text)]
+    if imperial_candidates:
+        return imperial_candidates[0]
+
     numeric_candidates: list[tuple[int, str]] = []
     for index, text in raw_columns:
         match = re.fullmatch(r"(\d{1,4})", text.strip())
@@ -1358,6 +1477,10 @@ def normalize_bom_tag(value: str | None, description: str | None, line_no: int |
 
 
 def normalize_bom_quantity(value: str | None, uom: str | None, description: str | None) -> tuple[str | None, str | None, bool]:
+    stripped_value = (value or "").strip()
+    if stripped_value and looks_like_imperial_quantity(stripped_value):
+        return stripped_value, uom, False
+
     raw = " ".join(part for part in (value, uom) if part)
     if raw:
         match = re.search(r"(\d+)\s*([A-Z]+)?", raw.upper())
@@ -1430,10 +1553,31 @@ def should_skip_bom_item(item: BOMItem, issues: list[str]) -> bool:
 def infer_tag_from_raw_columns(raw_columns: list[tuple[int, str]]) -> str | None:
     candidates = [text for _, text in raw_columns]
     for text in candidates:
+        if looks_like_imperial_quantity(text):
+            continue
         normalized = re.sub(r"[^A-Z0-9-]", "", text.upper())
         if looks_like_bom_tag_candidate(normalized):
             return text
     return None
+
+
+def select_simple_spool_qty_seed(
+    line_no: int | None,
+    raw_qty: str | None,
+    raw_columns: list[tuple[int, str]],
+) -> str | None:
+    line_token = str(line_no) if line_no is not None else None
+    if raw_qty and raw_qty.strip() and raw_qty.strip() != line_token:
+        return raw_qty.strip()
+
+    for _, text in raw_columns:
+        stripped = text.strip()
+        if looks_like_quantity_value(stripped):
+            return stripped
+
+    if raw_qty and raw_qty.strip():
+        return raw_qty.strip()
+    return infer_qty_from_raw_columns(raw_columns)
 
 
 def infer_numeric_weld_ids_from_weld_list(rois) -> tuple[list[str], dict[str, int | str]]:

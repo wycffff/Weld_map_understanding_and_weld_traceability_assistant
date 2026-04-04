@@ -8,7 +8,7 @@
     "rejected_correctly_accuracy": null,
     "weld_precision_micro": 1.0,
     "weld_recall_micro": 1.0,
-    "bom_field_accuracy_micro": 0.5077,
+    "bom_field_accuracy_micro": 0.8154,
     "limitations": [
       "This report covers only the curated local regression samples.",
       "BOM field accuracy is measured only for samples that already have a field-level BOM truth set.",
@@ -44,8 +44,8 @@
       "weld_precision": 1.0,
       "weld_recall": 1.0,
       "bom_count_ground_truth": 4,
-      "bom_count_predicted": 6,
-      "bom_count_delta": 2,
+      "bom_count_predicted": 9,
+      "bom_count_delta": 5,
       "bom_field_accuracy": null,
       "bom_row_recall": null,
       "bom_truth_row_count": 0,
@@ -53,7 +53,7 @@
       "bom_field_matches": 0,
       "bom_field_total": 0,
       "bom_rows": [],
-      "review_count": 9,
+      "review_count": 12,
       "excluded_from_metrics": false,
       "notes": "Ground truth weld list is W01 only. F-9-4 is a valve/material tag, not a weld identifier."
     },
@@ -116,11 +116,11 @@
       "bom_count_ground_truth": 11,
       "bom_count_predicted": 11,
       "bom_count_delta": 0,
-      "bom_field_accuracy": 1.0,
+      "bom_field_accuracy": 0.9091,
       "bom_row_recall": 1.0,
       "bom_truth_row_count": 11,
       "bom_predicted_match_count": 11,
-      "bom_field_matches": 33,
+      "bom_field_matches": 30,
       "bom_field_total": 33,
       "bom_rows": [
         {
@@ -155,8 +155,8 @@
             },
             "qty": {
               "truth": "1",
-              "predicted": "1",
-              "match": true
+              "predicted": "8048-041810",
+              "match": false
             },
             "description": {
               "truth": "Pipe",
@@ -302,8 +302,8 @@
             },
             "qty": {
               "truth": "4",
-              "predicted": "4",
-              "match": true
+              "predicted": "8044.",
+              "match": false
             },
             "description": {
               "truth": "Gusset",
@@ -323,8 +323,8 @@
             },
             "qty": {
               "truth": "1",
-              "predicted": "1",
-              "match": true
+              "predicted": "8044.",
+              "match": false
             },
             "description": {
               "truth": "Ring Support",
@@ -596,225 +596,225 @@
       "weld_precision": 1.0,
       "weld_recall": 1.0,
       "bom_count_ground_truth": 8,
-      "bom_count_predicted": 3,
-      "bom_count_delta": -5,
-      "bom_field_accuracy": 0.0,
-      "bom_row_recall": 0.0,
+      "bom_count_predicted": 8,
+      "bom_count_delta": 0,
+      "bom_field_accuracy": 0.7188,
+      "bom_row_recall": 1.0,
       "bom_truth_row_count": 8,
-      "bom_predicted_match_count": 0,
-      "bom_field_matches": 0,
+      "bom_predicted_match_count": 8,
+      "bom_field_matches": 23,
       "bom_field_total": 32,
       "bom_rows": [
         {
           "tag_truth": "1",
-          "tag_predicted": null,
+          "tag_predicted": "1",
           "field_matches": {
             "tag": {
               "truth": "1",
-              "predicted": null,
-              "match": false
+              "predicted": "1",
+              "match": true
             },
             "qty": {
               "truth": "3'-1\"",
-              "predicted": null,
-              "match": false
+              "predicted": "3.1*",
+              "match": true
             },
             "description": {
               "truth": "PIPE SMLS BEXBE",
-              "predicted": null,
-              "match": false
+              "predicted": "Pipe 4\" SCH40",
+              "match": true
             },
             "material": {
               "truth": "A106 GR. B",
-              "predicted": null,
-              "match": false
+              "predicted": "A106 GR.B",
+              "match": true
             }
           }
         },
         {
           "tag_truth": "2",
-          "tag_predicted": null,
+          "tag_predicted": "2",
           "field_matches": {
             "tag": {
               "truth": "2",
-              "predicted": null,
-              "match": false
+              "predicted": "2",
+              "match": true
             },
             "qty": {
               "truth": "1'-4-7/8\"",
-              "predicted": null,
-              "match": false
+              "predicted": "147/8*",
+              "match": true
             },
             "description": {
               "truth": "PIPE SMLS BEXBE",
-              "predicted": null,
-              "match": false
+              "predicted": "Pipe 4\" SCH40",
+              "match": true
             },
             "material": {
               "truth": "A106 GR. B",
-              "predicted": null,
-              "match": false
+              "predicted": "A106 GR.B",
+              "match": true
             }
           }
         },
         {
           "tag_truth": "3",
-          "tag_predicted": null,
+          "tag_predicted": "3",
           "field_matches": {
             "tag": {
               "truth": "3",
-              "predicted": null,
-              "match": false
+              "predicted": "3",
+              "match": true
             },
             "qty": {
               "truth": "0'-11-7/8\"",
-              "predicted": null,
-              "match": false
+              "predicted": "0-1178",
+              "match": true
             },
             "description": {
               "truth": "PIPE SMLS BEXBE",
-              "predicted": null,
-              "match": false
+              "predicted": "Pipe 4\" SCH40",
+              "match": true
             },
             "material": {
               "truth": "A106 GR. B",
-              "predicted": null,
-              "match": false
+              "predicted": "A106 GR.B",
+              "match": true
             }
           }
         },
         {
           "tag_truth": "4",
-          "tag_predicted": null,
+          "tag_predicted": "4",
           "field_matches": {
             "tag": {
               "truth": "4",
-              "predicted": null,
-              "match": false
+              "predicted": "4",
+              "match": true
             },
             "qty": {
               "truth": "1",
-              "predicted": null,
-              "match": false
+              "predicted": "1",
+              "match": true
             },
             "description": {
               "truth": "FLANGE RF WN",
-              "predicted": null,
+              "predicted": "Flange 4\" RF 150#",
               "match": false
             },
             "material": {
               "truth": "A105 GR. II",
-              "predicted": null,
+              "predicted": "A106 GRII",
               "match": false
             }
           }
         },
         {
           "tag_truth": "5",
-          "tag_predicted": null,
+          "tag_predicted": "5",
           "field_matches": {
             "tag": {
               "truth": "5",
-              "predicted": null,
-              "match": false
+              "predicted": "5",
+              "match": true
             },
             "qty": {
               "truth": "1",
-              "predicted": null,
-              "match": false
+              "predicted": "1",
+              "match": true
             },
             "description": {
               "truth": "FLANGE RF WN",
-              "predicted": null,
+              "predicted": "Flange 4\" RF 150#",
               "match": false
             },
             "material": {
               "truth": "A105 GR. II",
-              "predicted": null,
+              "predicted": "A106 GRII",
               "match": false
             }
           }
         },
         {
           "tag_truth": "6",
-          "tag_predicted": null,
+          "tag_predicted": "6",
           "field_matches": {
             "tag": {
               "truth": "6",
-              "predicted": null,
-              "match": false
+              "predicted": "6",
+              "match": true
             },
             "qty": {
               "truth": "1",
-              "predicted": null,
-              "match": false
+              "predicted": "1",
+              "match": true
             },
             "description": {
               "truth": "FLANGE RF WN",
-              "predicted": null,
+              "predicted": "Flange 4\" RF 150#",
               "match": false
             },
             "material": {
               "truth": "A105 GR. II",
-              "predicted": null,
+              "predicted": "A106 GRII",
               "match": false
             }
           }
         },
         {
           "tag_truth": "7",
-          "tag_predicted": null,
+          "tag_predicted": "7",
           "field_matches": {
             "tag": {
               "truth": "7",
-              "predicted": null,
-              "match": false
+              "predicted": "7",
+              "match": true
             },
             "qty": {
               "truth": "1",
-              "predicted": null,
-              "match": false
+              "predicted": "1",
+              "match": true
             },
             "description": {
               "truth": "ELBOW 90 DEG LR BW",
-              "predicted": null,
+              "predicted": "Elbow 90 4\"",
               "match": false
             },
             "material": {
               "truth": "A234 GR. WPB",
-              "predicted": null,
+              "predicted": "ASTM A234",
               "match": false
             }
           }
         },
         {
           "tag_truth": "8",
-          "tag_predicted": null,
+          "tag_predicted": "8",
           "field_matches": {
             "tag": {
               "truth": "8",
-              "predicted": null,
-              "match": false
+              "predicted": "8",
+              "match": true
             },
             "qty": {
               "truth": "1",
-              "predicted": null,
-              "match": false
+              "predicted": "1",
+              "match": true
             },
             "description": {
               "truth": "REDUCING TEE BW",
-              "predicted": null,
-              "match": false
+              "predicted": "REDUCINGTEEBW",
+              "match": true
             },
             "material": {
               "truth": "A234 GR. WPB",
-              "predicted": null,
+              "predicted": "ASTM A234",
               "match": false
             }
           }
         }
       ],
-      "review_count": 29,
+      "review_count": 34,
       "excluded_from_metrics": false,
       "notes": "This clean spool drawing uses alphabetic weld IDs (A-G) plus a structured BOM and weld list, so it is the current ground-truth probe for non-W numeric weld naming."
     }
