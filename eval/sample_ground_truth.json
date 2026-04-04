@@ -59,6 +59,25 @@
       "bom_count": 11,
       "exclude_from_metrics": true,
       "notes": "This file is byte-identical to samples/real/2.jpeg, so it is tracked as a duplicate sample and excluded from aggregate metrics."
+    },
+    {
+      "input_file": "samples/real/11.png",
+      "drawing_number": "SG-3-HWS-SP-0001A",
+      "drawing_type": "simple_spool",
+      "supported": true,
+      "weld_ids": ["A", "B", "C", "D", "E", "F", "G"],
+      "bom_count": 8,
+      "bom_items": [
+        {"tag": "1", "description": "PIPE SMLS BEXBE", "qty": "3'-1\"", "material": "A106 GR. B"},
+        {"tag": "2", "description": "PIPE SMLS BEXBE", "qty": "1'-4-7/8\"", "material": "A106 GR. B"},
+        {"tag": "3", "description": "PIPE SMLS BEXBE", "qty": "0'-11-7/8\"", "material": "A106 GR. B"},
+        {"tag": "4", "description": "FLANGE RF WN", "qty": "1", "material": "A105 GR. II"},
+        {"tag": "5", "description": "FLANGE RF WN", "qty": "1", "material": "A105 GR. II"},
+        {"tag": "6", "description": "FLANGE RF WN", "qty": "1", "material": "A105 GR. II"},
+        {"tag": "7", "description": "ELBOW 90 DEG LR BW", "qty": "1", "material": "A234 GR. WPB"},
+        {"tag": "8", "description": "REDUCING TEE BW", "qty": "1", "material": "A234 GR. WPB"}
+      ],
+      "notes": "This clean spool drawing uses alphabetic weld IDs (A-G) plus a structured BOM and weld list, so it is the current ground-truth probe for non-W numeric weld naming."
     }
   ]
 }

@@ -1,0 +1,814 @@
+{
+  "ground_truth_path": "eval\\sample_ground_truth.json",
+  "aggregate": {
+    "sample_count": 6,
+    "included_sample_count": 4,
+    "drawing_number_accuracy": 0.75,
+    "drawing_type_accuracy": 0.75,
+    "rejected_correctly_accuracy": null,
+    "weld_precision_micro": 1.0,
+    "weld_recall_micro": 0.8056,
+    "bom_field_accuracy_micro": 0.5077,
+    "limitations": [
+      "This report covers only the curated local regression samples.",
+      "BOM field accuracy is measured only for samples that already have a field-level BOM truth set.",
+      "Rejected-correctly accuracy is reported only for samples that explicitly expect rejection.",
+      "Low-resolution samples can be excluded from metrics until a reliable human-labeled truth set is available."
+    ]
+  },
+  "samples": [
+    {
+      "input_file": "samples\\real\\1.jpg",
+      "drawing_number_ground_truth": "4-N1-101",
+      "drawing_number_predicted": "4-N1-101",
+      "drawing_number_match": true,
+      "drawing_type_ground_truth": "simple_spool",
+      "drawing_type_predicted": "simple_spool",
+      "drawing_type_match": true,
+      "supported_ground_truth": true,
+      "supported_predicted": true,
+      "rejection_reason_ground_truth": null,
+      "rejection_reason_predicted": null,
+      "rejected_correctly": true,
+      "weld_ids_ground_truth": [
+        "W01"
+      ],
+      "weld_ids_predicted": [
+        "W01"
+      ],
+      "weld_true_positive_ids": [
+        "W01"
+      ],
+      "weld_false_positive_ids": [],
+      "weld_false_negative_ids": [],
+      "weld_precision": 1.0,
+      "weld_recall": 1.0,
+      "bom_count_ground_truth": 4,
+      "bom_count_predicted": 6,
+      "bom_count_delta": 2,
+      "bom_field_accuracy": null,
+      "bom_row_recall": null,
+      "bom_truth_row_count": 0,
+      "bom_predicted_match_count": 0,
+      "bom_field_matches": 0,
+      "bom_field_total": 0,
+      "bom_rows": [],
+      "review_count": 9,
+      "excluded_from_metrics": false,
+      "notes": "Ground truth weld list is W01 only. F-9-4 is a valve/material tag, not a weld identifier."
+    },
+    {
+      "input_file": "samples\\real\\2.jpeg",
+      "drawing_number_ground_truth": "C-52",
+      "drawing_number_predicted": "C-52",
+      "drawing_number_match": true,
+      "drawing_type_ground_truth": "fabrication_weld_map",
+      "drawing_type_predicted": "fabrication_weld_map",
+      "drawing_type_match": true,
+      "supported_ground_truth": true,
+      "supported_predicted": true,
+      "rejection_reason_ground_truth": null,
+      "rejection_reason_predicted": null,
+      "rejected_correctly": true,
+      "weld_ids_ground_truth": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05",
+        "W06",
+        "W07",
+        "W08",
+        "W09",
+        "W10",
+        "W11"
+      ],
+      "weld_ids_predicted": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W06",
+        "W05",
+        "W07",
+        "W08",
+        "W10",
+        "W11",
+        "W09"
+      ],
+      "weld_true_positive_ids": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05",
+        "W06",
+        "W07",
+        "W08",
+        "W09",
+        "W10",
+        "W11"
+      ],
+      "weld_false_positive_ids": [],
+      "weld_false_negative_ids": [],
+      "weld_precision": 1.0,
+      "weld_recall": 1.0,
+      "bom_count_ground_truth": 11,
+      "bom_count_predicted": 11,
+      "bom_count_delta": 0,
+      "bom_field_accuracy": 1.0,
+      "bom_row_recall": 1.0,
+      "bom_truth_row_count": 11,
+      "bom_predicted_match_count": 11,
+      "bom_field_matches": 33,
+      "bom_field_total": 33,
+      "bom_rows": [
+        {
+          "tag_truth": "261-01",
+          "tag_predicted": "261-01",
+          "field_matches": {
+            "tag": {
+              "truth": "261-01",
+              "predicted": "261-01",
+              "match": true
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": "1",
+              "match": true
+            },
+            "description": {
+              "truth": "Pipe",
+              "predicted": "Pipe 4\" SCH40",
+              "match": true
+            }
+          }
+        },
+        {
+          "tag_truth": "261-02",
+          "tag_predicted": "261-02",
+          "field_matches": {
+            "tag": {
+              "truth": "261-02",
+              "predicted": "261-02",
+              "match": true
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": "1",
+              "match": true
+            },
+            "description": {
+              "truth": "Pipe",
+              "predicted": "Pipe 4\" SCH40",
+              "match": true
+            }
+          }
+        },
+        {
+          "tag_truth": "265-03",
+          "tag_predicted": "265-03",
+          "field_matches": {
+            "tag": {
+              "truth": "265-03",
+              "predicted": "265-03",
+              "match": true
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": "1",
+              "match": true
+            },
+            "description": {
+              "truth": "End Plate",
+              "predicted": "End Plate",
+              "match": true
+            }
+          }
+        },
+        {
+          "tag_truth": "265-04",
+          "tag_predicted": "265-04",
+          "field_matches": {
+            "tag": {
+              "truth": "265-04",
+              "predicted": "265-04",
+              "match": true
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": "1",
+              "match": true
+            },
+            "description": {
+              "truth": "End Plate",
+              "predicted": "End Plate",
+              "match": true
+            }
+          }
+        },
+        {
+          "tag_truth": "LFRDKO90520",
+          "tag_predicted": "LFRDKO90520",
+          "field_matches": {
+            "tag": {
+              "truth": "LFRDKO90520",
+              "predicted": "LFRDKO90520",
+              "match": true
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": "1",
+              "match": true
+            },
+            "description": {
+              "truth": "Flange Plate",
+              "predicted": "Flange Plate",
+              "match": true
+            }
+          }
+        },
+        {
+          "tag_truth": "NAMEPLATE-30",
+          "tag_predicted": "NAMEPLATE-30",
+          "field_matches": {
+            "tag": {
+              "truth": "NAMEPLATE-30",
+              "predicted": "NAMEPLATE-30",
+              "match": true
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": "1",
+              "match": true
+            },
+            "description": {
+              "truth": "Information Tag Plate",
+              "predicted": "Information Tag Plate",
+              "match": true
+            }
+          }
+        },
+        {
+          "tag_truth": "504-C1",
+          "tag_predicted": "504-C1",
+          "field_matches": {
+            "tag": {
+              "truth": "504-C1",
+              "predicted": "504-C1",
+              "match": true
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": "1",
+              "match": true
+            },
+            "description": {
+              "truth": "Base Plate",
+              "predicted": "Base Plate",
+              "match": true
+            }
+          }
+        },
+        {
+          "tag_truth": "504-C2",
+          "tag_predicted": "504-C2",
+          "field_matches": {
+            "tag": {
+              "truth": "504-C2",
+              "predicted": "504-C2",
+              "match": true
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": "1",
+              "match": true
+            },
+            "description": {
+              "truth": "Shear Key",
+              "predicted": "Shear Key",
+              "match": true
+            }
+          }
+        },
+        {
+          "tag_truth": "504-C3",
+          "tag_predicted": "504-C3",
+          "field_matches": {
+            "tag": {
+              "truth": "504-C3",
+              "predicted": "504-C3",
+              "match": true
+            },
+            "qty": {
+              "truth": "4",
+              "predicted": "4",
+              "match": true
+            },
+            "description": {
+              "truth": "Gusset",
+              "predicted": "Gusset",
+              "match": true
+            }
+          }
+        },
+        {
+          "tag_truth": "504-C4",
+          "tag_predicted": "504-C4",
+          "field_matches": {
+            "tag": {
+              "truth": "504-C4",
+              "predicted": "504-C4",
+              "match": true
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": "1",
+              "match": true
+            },
+            "description": {
+              "truth": "Ring Support",
+              "predicted": "Ring Support",
+              "match": true
+            }
+          }
+        },
+        {
+          "tag_truth": "GRND",
+          "tag_predicted": "GRND",
+          "field_matches": {
+            "tag": {
+              "truth": "GRND",
+              "predicted": "GRND",
+              "match": true
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": "1",
+              "match": true
+            },
+            "description": {
+              "truth": "Ground Lug",
+              "predicted": "Ground Lug",
+              "match": true
+            }
+          }
+        }
+      ],
+      "review_count": 21,
+      "excluded_from_metrics": false,
+      "notes": "The weld boxes in the upper-left area define the main weld-id truth set for this sample."
+    },
+    {
+      "input_file": "samples\\real\\3.png",
+      "drawing_number_ground_truth": "N-30-P-22009-AA1",
+      "drawing_number_predicted": "N-30-P-22009-AA1",
+      "drawing_number_match": true,
+      "drawing_type_ground_truth": "pipeline_isometric",
+      "drawing_type_predicted": "pipeline_isometric",
+      "drawing_type_match": true,
+      "supported_ground_truth": true,
+      "supported_predicted": true,
+      "rejection_reason_ground_truth": null,
+      "rejection_reason_predicted": null,
+      "rejected_correctly": true,
+      "weld_ids_ground_truth": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17"
+      ],
+      "weld_ids_predicted": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17"
+      ],
+      "weld_true_positive_ids": [
+        "1",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "weld_false_positive_ids": [],
+      "weld_false_negative_ids": [],
+      "weld_precision": 1.0,
+      "weld_recall": 1.0,
+      "bom_count_ground_truth": 3,
+      "bom_count_predicted": 0,
+      "bom_count_delta": -3,
+      "bom_field_accuracy": null,
+      "bom_row_recall": null,
+      "bom_truth_row_count": 0,
+      "bom_predicted_match_count": 0,
+      "bom_field_matches": 0,
+      "bom_field_total": 0,
+      "bom_rows": [],
+      "review_count": 12,
+      "excluded_from_metrics": false,
+      "notes": "This sample currently uses numeric weld identifiers from the welding list. Matching the count is not enough long-term; cell-level parsing is still required."
+    },
+    {
+      "input_file": "samples\\real\\4.webp",
+      "drawing_number_ground_truth": null,
+      "drawing_number_predicted": "doc_20260404_0004_2d52",
+      "drawing_number_match": false,
+      "drawing_type_ground_truth": "dual_isometric",
+      "drawing_type_predicted": "dual_isometric",
+      "drawing_type_match": true,
+      "supported_ground_truth": true,
+      "supported_predicted": true,
+      "rejection_reason_ground_truth": null,
+      "rejection_reason_predicted": null,
+      "rejected_correctly": true,
+      "weld_ids_ground_truth": [],
+      "weld_ids_predicted": [],
+      "weld_true_positive_ids": [],
+      "weld_false_positive_ids": [],
+      "weld_false_negative_ids": [],
+      "weld_precision": 0.0,
+      "weld_recall": 0.0,
+      "bom_count_ground_truth": 0,
+      "bom_count_predicted": 0,
+      "bom_count_delta": 0,
+      "bom_field_accuracy": null,
+      "bom_row_recall": null,
+      "bom_truth_row_count": 0,
+      "bom_predicted_match_count": 0,
+      "bom_field_matches": 0,
+      "bom_field_total": 0,
+      "bom_rows": [],
+      "review_count": 2,
+      "excluded_from_metrics": true,
+      "notes": "This low-resolution dual-isometric sample is excluded from quantitative metrics until a higher-quality source or a verified human truth set is available."
+    },
+    {
+      "input_file": "samples\\real\\6.jpeg",
+      "drawing_number_ground_truth": "C-52",
+      "drawing_number_predicted": "C-52",
+      "drawing_number_match": true,
+      "drawing_type_ground_truth": "fabrication_weld_map",
+      "drawing_type_predicted": "fabrication_weld_map",
+      "drawing_type_match": true,
+      "supported_ground_truth": true,
+      "supported_predicted": true,
+      "rejection_reason_ground_truth": null,
+      "rejection_reason_predicted": null,
+      "rejected_correctly": true,
+      "weld_ids_ground_truth": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05",
+        "W06",
+        "W07",
+        "W08",
+        "W09",
+        "W10",
+        "W11"
+      ],
+      "weld_ids_predicted": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W06",
+        "W05",
+        "W07",
+        "W08",
+        "W10",
+        "W11",
+        "W09"
+      ],
+      "weld_true_positive_ids": [
+        "W01",
+        "W02",
+        "W03",
+        "W04",
+        "W05",
+        "W06",
+        "W07",
+        "W08",
+        "W09",
+        "W10",
+        "W11"
+      ],
+      "weld_false_positive_ids": [],
+      "weld_false_negative_ids": [],
+      "weld_precision": 1.0,
+      "weld_recall": 1.0,
+      "bom_count_ground_truth": 11,
+      "bom_count_predicted": 11,
+      "bom_count_delta": 0,
+      "bom_field_accuracy": null,
+      "bom_row_recall": null,
+      "bom_truth_row_count": 0,
+      "bom_predicted_match_count": 0,
+      "bom_field_matches": 0,
+      "bom_field_total": 0,
+      "bom_rows": [],
+      "review_count": 21,
+      "excluded_from_metrics": true,
+      "notes": "This file is byte-identical to samples/real/2.jpeg, so it is tracked as a duplicate sample and excluded from aggregate metrics."
+    },
+    {
+      "input_file": "samples\\real\\11.png",
+      "drawing_number_ground_truth": "SG-3-HWS-SP-0001A",
+      "drawing_number_predicted": "doc_20260404_0005_3822",
+      "drawing_number_match": false,
+      "drawing_type_ground_truth": "simple_spool",
+      "drawing_type_predicted": "unknown",
+      "drawing_type_match": false,
+      "supported_ground_truth": true,
+      "supported_predicted": false,
+      "rejection_reason_ground_truth": null,
+      "rejection_reason_predicted": "drawing_type_unknown",
+      "rejected_correctly": false,
+      "weld_ids_ground_truth": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G"
+      ],
+      "weld_ids_predicted": [],
+      "weld_true_positive_ids": [],
+      "weld_false_positive_ids": [],
+      "weld_false_negative_ids": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G"
+      ],
+      "weld_precision": 0.0,
+      "weld_recall": 0.0,
+      "bom_count_ground_truth": 8,
+      "bom_count_predicted": 0,
+      "bom_count_delta": -8,
+      "bom_field_accuracy": 0.0,
+      "bom_row_recall": 0.0,
+      "bom_truth_row_count": 8,
+      "bom_predicted_match_count": 0,
+      "bom_field_matches": 0,
+      "bom_field_total": 32,
+      "bom_rows": [
+        {
+          "tag_truth": "1",
+          "tag_predicted": null,
+          "field_matches": {
+            "tag": {
+              "truth": "1",
+              "predicted": null,
+              "match": false
+            },
+            "qty": {
+              "truth": "3'-1\"",
+              "predicted": null,
+              "match": false
+            },
+            "description": {
+              "truth": "PIPE SMLS BEXBE",
+              "predicted": null,
+              "match": false
+            },
+            "material": {
+              "truth": "A106 GR. B",
+              "predicted": null,
+              "match": false
+            }
+          }
+        },
+        {
+          "tag_truth": "2",
+          "tag_predicted": null,
+          "field_matches": {
+            "tag": {
+              "truth": "2",
+              "predicted": null,
+              "match": false
+            },
+            "qty": {
+              "truth": "1'-4-7/8\"",
+              "predicted": null,
+              "match": false
+            },
+            "description": {
+              "truth": "PIPE SMLS BEXBE",
+              "predicted": null,
+              "match": false
+            },
+            "material": {
+              "truth": "A106 GR. B",
+              "predicted": null,
+              "match": false
+            }
+          }
+        },
+        {
+          "tag_truth": "3",
+          "tag_predicted": null,
+          "field_matches": {
+            "tag": {
+              "truth": "3",
+              "predicted": null,
+              "match": false
+            },
+            "qty": {
+              "truth": "0'-11-7/8\"",
+              "predicted": null,
+              "match": false
+            },
+            "description": {
+              "truth": "PIPE SMLS BEXBE",
+              "predicted": null,
+              "match": false
+            },
+            "material": {
+              "truth": "A106 GR. B",
+              "predicted": null,
+              "match": false
+            }
+          }
+        },
+        {
+          "tag_truth": "4",
+          "tag_predicted": null,
+          "field_matches": {
+            "tag": {
+              "truth": "4",
+              "predicted": null,
+              "match": false
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": null,
+              "match": false
+            },
+            "description": {
+              "truth": "FLANGE RF WN",
+              "predicted": null,
+              "match": false
+            },
+            "material": {
+              "truth": "A105 GR. II",
+              "predicted": null,
+              "match": false
+            }
+          }
+        },
+        {
+          "tag_truth": "5",
+          "tag_predicted": null,
+          "field_matches": {
+            "tag": {
+              "truth": "5",
+              "predicted": null,
+              "match": false
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": null,
+              "match": false
+            },
+            "description": {
+              "truth": "FLANGE RF WN",
+              "predicted": null,
+              "match": false
+            },
+            "material": {
+              "truth": "A105 GR. II",
+              "predicted": null,
+              "match": false
+            }
+          }
+        },
+        {
+          "tag_truth": "6",
+          "tag_predicted": null,
+          "field_matches": {
+            "tag": {
+              "truth": "6",
+              "predicted": null,
+              "match": false
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": null,
+              "match": false
+            },
+            "description": {
+              "truth": "FLANGE RF WN",
+              "predicted": null,
+              "match": false
+            },
+            "material": {
+              "truth": "A105 GR. II",
+              "predicted": null,
+              "match": false
+            }
+          }
+        },
+        {
+          "tag_truth": "7",
+          "tag_predicted": null,
+          "field_matches": {
+            "tag": {
+              "truth": "7",
+              "predicted": null,
+              "match": false
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": null,
+              "match": false
+            },
+            "description": {
+              "truth": "ELBOW 90 DEG LR BW",
+              "predicted": null,
+              "match": false
+            },
+            "material": {
+              "truth": "A234 GR. WPB",
+              "predicted": null,
+              "match": false
+            }
+          }
+        },
+        {
+          "tag_truth": "8",
+          "tag_predicted": null,
+          "field_matches": {
+            "tag": {
+              "truth": "8",
+              "predicted": null,
+              "match": false
+            },
+            "qty": {
+              "truth": "1",
+              "predicted": null,
+              "match": false
+            },
+            "description": {
+              "truth": "REDUCING TEE BW",
+              "predicted": null,
+              "match": false
+            },
+            "material": {
+              "truth": "A234 GR. WPB",
+              "predicted": null,
+              "match": false
+            }
+          }
+        }
+      ],
+      "review_count": 1,
+      "excluded_from_metrics": false,
+      "notes": "This clean spool drawing uses alphabetic weld IDs (A-G) plus a structured BOM and weld list, so it is the current ground-truth probe for non-W numeric weld naming."
+    }
+  ]
+}
