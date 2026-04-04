@@ -6,7 +6,7 @@ from pathlib import Path
 
 from weld_assistant.config import load_config
 from weld_assistant.db.repository import SQLiteRepository
-from weld_assistant.services.exporter import RepositoryExporter
+from weld_assistant.services.exporter import RepositoryExporter, event_status, latest_stage_events_by_weld
 from weld_assistant.services.pipeline import PipelineService
 from weld_assistant.services.progress import ProgressService, normalize_manual_weld_id
 from weld_assistant.services.review import ReviewService
@@ -95,7 +95,7 @@ def main() -> None:  # pragma: no cover
                 for roi_path in roi_paths:
                     st.image(str(roi_path), caption=roi_path.name)
 
-    st.subheader("Export existing drawing")
+    st.subheader("Open drawing")
     drawing_query = st.text_input("Search by drawing number, spool name, or document id")
     drawing_matches = repository.search_drawings(drawing_query, limit=12) if drawing_query else repository.list_drawings(limit=12)
 
@@ -109,14 +109,8 @@ def main() -> None:  # pragma: no cover
     elif drawing_query:
         st.caption("No matching drawings found.")
 
-    if selected_drawing_number and st.button("Load export files"):
-        json_path, csv_path = repo_exporter.export(selected_drawing_number)
-        st.code(json.dumps({"json": json_path, "csv": csv_path}, ensure_ascii=False, indent=2))
-        st.download_button("Download JSON", Path(json_path).read_text(encoding="utf-8"), file_name=Path(json_path).name)
-        st.download_button("Download CSV", Path(csv_path).read_text(encoding="utf-8"), file_name=Path(csv_path).name)
-
     if selected_drawing_number:
-        render_traceability_workspace(st, repository, progress_service, selected_drawing_number)
+        render_traceability_workspace(st, repository, progress_service, repo_exporter, selected_drawing_number)
 
     render_review_queue_workspace(st, repository, progress_service, review_service, selected_drawing_number)
 
@@ -131,14 +125,27 @@ def format_drawing_option(drawing_number: str, matches) -> str:
     return " | ".join(parts)
 
 
-def render_traceability_workspace(st, repository: SQLiteRepository, progress_service: ProgressService, drawing_number: str) -> None:
+def render_traceability_workspace(
+    st,
+    repository: SQLiteRepository,
+    progress_service: ProgressService,
+    repo_exporter: RepositoryExporter,
+    drawing_number: str,
+) -> None:
     drawing_row = repository.get_drawing(drawing_number)
     weld_rows = repository.list_welds(drawing_number)
     review_rows = repository.list_review_queue(drawing_number, unresolved_only=True)
     photo_rows = repository.list_photo_evidence(drawing_number)
+    progress_rows = repository.list_weld_progress(drawing_number)
     st.subheader("Weld Traceability")
     render_drawing_health_summary(st, drawing_row, weld_rows, review_rows, photo_rows)
-    manual_tab, manage_tab = st.tabs(["Manual weld intake", "Manage stored welds"])
+    render_weld_log_header(st, drawing_row)
+    render_traceability_action_bar(st, repo_exporter, drawing_number)
+
+    log_tab, manual_tab, operations_tab = st.tabs(["WELD LOG view", "Manual weld intake", "Operations"])
+
+    with log_tab:
+        render_weld_log_workspace(st, progress_service, drawing_number, weld_rows, review_rows, progress_rows)
 
     with manual_tab:
         st.caption(
@@ -215,7 +222,7 @@ def render_traceability_workspace(st, repository: SQLiteRepository, progress_ser
                     )
                 st.rerun()
 
-    with manage_tab:
+    with operations_tab:
         if not weld_rows:
             st.error(
                 "No weld rows are stored for this drawing yet. "
@@ -227,58 +234,64 @@ def render_traceability_workspace(st, repository: SQLiteRepository, progress_ser
                 st.dataframe([dict(row) for row in photo_rows], use_container_width=True)
             return
 
-        st.dataframe([dict(row) for row in weld_rows], use_container_width=True)
-
         selected_weld_id = st.selectbox(
-            "Select weld",
+            "Select weld for operations",
             options=[row["weld_id"] for row in weld_rows],
             key=f"weld_select_{drawing_number}",
         )
         selected_weld = next(row for row in weld_rows if row["weld_id"] == selected_weld_id)
 
-        status_tab, inspection_tab, photo_tab, history_tab = st.tabs(
-            ["Status", "Inspection", "Photo evidence", "History"]
+        batch_tab, photo_tab, history_tab = st.tabs(
+            ["Batch update", "Upload photo", "History"]
         )
 
-        with status_tab:
-            with st.form(f"status_form_{drawing_number}_{selected_weld_id}"):
-                next_status = st.selectbox(
-                    "Next status",
-                    options=unique_options(selected_weld["status"], ["not_started", "in_progress", "done", "blocked"]),
+        with batch_tab:
+            with st.form(f"batch_update_form_{drawing_number}"):
+                batch_weld_ids = st.multiselect(
+                    "Welds to update",
+                    options=[row["weld_id"] for row in weld_rows],
+                    default=[selected_weld_id],
+                    key=f"batch_weld_ids_{drawing_number}",
                 )
-                operator = st.text_input("Operator", key=f"status_operator_{drawing_number}_{selected_weld_id}")
-                note = st.text_input("Note", key=f"status_note_{drawing_number}_{selected_weld_id}")
-                submitted = st.form_submit_button("Update status")
+                batch_mode = st.selectbox(
+                    "Update type",
+                    options=["weld_status", "inspection_status"],
+                    format_func=lambda value: "WELD status" if value == "weld_status" else "VT status",
+                    key=f"batch_mode_{drawing_number}",
+                )
+                batch_value = st.selectbox(
+                    "New value",
+                    options=["not_started", "in_progress", "done", "blocked"]
+                    if batch_mode == "weld_status"
+                    else ["not_checked", "pending", "accepted", "rejected"],
+                    key=f"batch_value_{drawing_number}",
+                )
+                operator = st.text_input("Operator", key=f"batch_operator_{drawing_number}")
+                note = st.text_input("Batch note", key=f"batch_note_{drawing_number}")
+                submitted = st.form_submit_button("Apply batch update")
             if submitted:
-                event = progress_service.update_status(
-                    drawing_number=drawing_number,
-                    weld_id=selected_weld_id,
-                    to_status=next_status,
-                    operator=operator or None,
-                    note=note or None,
-                )
-                st.success(f"Status updated: {event.from_status} -> {event.to_status}")
-                st.rerun()
-
-        with inspection_tab:
-            with st.form(f"inspection_form_{drawing_number}_{selected_weld_id}"):
-                next_inspection = st.selectbox(
-                    "Inspection status",
-                    options=unique_options(selected_weld["inspection_status"], ["not_checked", "pending", "accepted", "rejected"]),
-                )
-                operator = st.text_input("Inspector", key=f"inspection_operator_{drawing_number}_{selected_weld_id}")
-                note = st.text_input("Inspection note", key=f"inspection_note_{drawing_number}_{selected_weld_id}")
-                submitted = st.form_submit_button("Update inspection")
-            if submitted:
-                event = progress_service.update_inspection(
-                    drawing_number=drawing_number,
-                    weld_id=selected_weld_id,
-                    inspection_status=next_inspection,
-                    operator=operator or None,
-                    note=note or None,
-                )
-                st.success(f"Inspection updated: {event.from_status} -> {event.to_status}")
-                st.rerun()
+                if not batch_weld_ids:
+                    st.error("Select at least one weld first.")
+                else:
+                    for weld_id in batch_weld_ids:
+                        if batch_mode == "weld_status":
+                            progress_service.update_status(
+                                drawing_number=drawing_number,
+                                weld_id=weld_id,
+                                to_status=batch_value,
+                                operator=operator or None,
+                                note=note or None,
+                            )
+                        else:
+                            progress_service.update_inspection(
+                                drawing_number=drawing_number,
+                                weld_id=weld_id,
+                                inspection_status=batch_value,
+                                operator=operator or None,
+                                note=note or None,
+                            )
+                    st.success(f"Updated {len(batch_weld_ids)} weld row(s).")
+                    st.rerun()
 
         with photo_tab:
             uploaded_photo = st.file_uploader(
@@ -322,6 +335,179 @@ def render_traceability_workspace(st, repository: SQLiteRepository, progress_ser
                         st.image(row["file_path"], caption=f"{row['photo_id']} | {row['linked_at']}")
             else:
                 st.caption("No photos linked yet.")
+
+
+def render_weld_log_header(st, drawing_row) -> None:
+    if not drawing_row:
+        return
+
+    row_one = st.columns(3)
+    row_one[0].markdown(f"**Drawing**  \n{drawing_row['drawing_number'] or ''}")
+    row_one[1].markdown("**P&ID**  \n")
+    row_one[2].markdown(f"**Project**  \n{drawing_row['project_number'] or ''}")
+
+    row_two = st.columns(3)
+    row_two[0].markdown(f"**Pack**  \n{drawing_row['spool_name'] or ''}")
+    row_two[1].markdown("**System**  \n")
+    row_two[2].markdown("**Client**  \n")
+
+
+def render_traceability_action_bar(st, repo_exporter: RepositoryExporter, drawing_number: str) -> None:
+    json_path, csv_path = repo_exporter.export(drawing_number)
+    weld_log_path = repo_exporter.export_weld_log_csv(drawing_number)
+
+    action_columns = st.columns(3)
+    action_columns[0].download_button(
+        "Export WELD LOG",
+        Path(weld_log_path).read_text(encoding="utf-8"),
+        file_name=Path(weld_log_path).name,
+        key=f"download_weld_log_{drawing_number}",
+        use_container_width=True,
+    )
+    action_columns[1].download_button(
+        "Export CSV",
+        Path(csv_path).read_text(encoding="utf-8"),
+        file_name=Path(csv_path).name,
+        key=f"download_csv_{drawing_number}",
+        use_container_width=True,
+    )
+    action_columns[2].download_button(
+        "Export JSON",
+        Path(json_path).read_text(encoding="utf-8"),
+        file_name=Path(json_path).name,
+        key=f"download_json_{drawing_number}",
+        use_container_width=True,
+    )
+
+
+def render_weld_log_workspace(st, progress_service: ProgressService, drawing_number: str, weld_rows, review_rows, progress_rows) -> None:
+    if not weld_rows:
+        st.error(
+            "No weld rows are stored for this drawing yet. "
+            "Use the manual intake tab to create weld rows before using the WELD LOG workflow."
+        )
+        return
+
+    stage_events = latest_stage_events_by_weld([dict(row) for row in progress_rows])
+    st.caption("Rows marked with ⚠ need operator review. WELD and VT buttons open a quick inline update panel.")
+    header_columns = st.columns([1.0, 1.4, 1.0, 1.1, 0.7, 0.7, 0.7, 0.7, 0.9])
+    labels = ["WELD#", "JOINT TYPE", "DIAMETER", "WPS", "ROOT", "WELD", "VT", "RT", "PHOTOS"]
+    for column, label in zip(header_columns, labels):
+        column.markdown(f"**{label}**")
+
+    for weld in weld_rows:
+        render_weld_log_row(st, drawing_number, weld, review_rows, progress_service, stage_events)
+
+    render_inline_weld_update_panel(st, progress_service, drawing_number, weld_rows)
+
+
+def render_weld_log_row(st, drawing_number: str, weld_row, review_rows, progress_service: ProgressService, stage_events) -> None:
+    weld_id = weld_row["weld_id"]
+    root_event = stage_events.get((weld_id, "root"))
+    weld_event = stage_events.get((weld_id, "weld"))
+    vt_event = stage_events.get((weld_id, "vt"))
+    rt_event = stage_events.get((weld_id, "rt"))
+    is_review = bool(weld_row["needs_review"]) or any(row["weld_id"] == weld_id for row in review_rows if row["weld_id"])
+
+    row_columns = st.columns([1.0, 1.4, 1.0, 1.1, 0.7, 0.7, 0.7, 0.7, 0.9])
+    weld_label = f"⚠ {weld_id}" if is_review else weld_id
+    if is_review:
+        row_columns[0].markdown(
+            f"<div style='background:#fff3cd;padding:0.35rem 0.5rem;border-radius:0.4rem;'><strong>{weld_label}</strong></div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        row_columns[0].markdown(f"**{weld_label}**")
+    row_columns[1].write(weld_row["weld_type"] or "-")
+    row_columns[2].write(weld_row["pipe_size"] or "-")
+    row_columns[3].write(weld_row["wps_number"] or "-")
+    row_columns[4].markdown(stage_icon(event_status(root_event), is_review and not root_event))
+
+    if row_columns[5].button(stage_button_label(event_status(weld_event, fallback=weld_row["status"])), key=f"open_weld_status_{drawing_number}_{weld_id}", use_container_width=True):
+        st.session_state[f"traceability_quick_action_{drawing_number}"] = {"weld_id": weld_id, "mode": "status"}
+        st.rerun()
+    if row_columns[6].button(stage_button_label(event_status(vt_event, fallback=weld_row["inspection_status"])), key=f"open_weld_vt_{drawing_number}_{weld_id}", use_container_width=True):
+        st.session_state[f"traceability_quick_action_{drawing_number}"] = {"weld_id": weld_id, "mode": "inspection"}
+        st.rerun()
+
+    row_columns[7].markdown(stage_icon(event_status(rt_event), is_review and not rt_event))
+    row_columns[8].write(str(len(progress_service.repository.list_photo_evidence(drawing_number, weld_id))))
+
+
+def render_inline_weld_update_panel(st, progress_service: ProgressService, drawing_number: str, weld_rows) -> None:
+    action_state = st.session_state.get(f"traceability_quick_action_{drawing_number}")
+    if not action_state:
+        return
+
+    weld_id = action_state["weld_id"]
+    mode = action_state["mode"]
+    selected_weld = next((row for row in weld_rows if row["weld_id"] == weld_id), None)
+    if not selected_weld:
+        st.session_state.pop(f"traceability_quick_action_{drawing_number}", None)
+        return
+
+    st.markdown("---")
+    st.markdown(f"**Quick update: {drawing_number} / {weld_id}**")
+    with st.form(f"quick_update_form_{drawing_number}_{weld_id}_{mode}"):
+        if mode == "status":
+            next_value = st.selectbox(
+                "Next WELD status",
+                options=unique_options(selected_weld["status"], ["not_started", "in_progress", "done", "blocked"]),
+                key=f"quick_status_value_{drawing_number}_{weld_id}",
+            )
+        else:
+            next_value = st.selectbox(
+                "Next VT status",
+                options=unique_options(selected_weld["inspection_status"], ["not_checked", "pending", "accepted", "rejected"]),
+                key=f"quick_inspection_value_{drawing_number}_{weld_id}",
+            )
+        operator = st.text_input("Operator", key=f"quick_operator_{drawing_number}_{weld_id}_{mode}")
+        note = st.text_input("Note", key=f"quick_note_{drawing_number}_{weld_id}_{mode}")
+        submit_columns = st.columns(2)
+        submitted = submit_columns[0].form_submit_button("Apply update")
+        cancelled = submit_columns[1].form_submit_button("Cancel")
+
+    if cancelled:
+        st.session_state.pop(f"traceability_quick_action_{drawing_number}", None)
+        st.rerun()
+
+    if submitted:
+        if mode == "status":
+            progress_service.update_status(
+                drawing_number=drawing_number,
+                weld_id=weld_id,
+                to_status=next_value,
+                operator=operator or None,
+                note=note or None,
+            )
+        else:
+            progress_service.update_inspection(
+                drawing_number=drawing_number,
+                weld_id=weld_id,
+                inspection_status=next_value,
+                operator=operator or None,
+                note=note or None,
+            )
+        st.session_state.pop(f"traceability_quick_action_{drawing_number}", None)
+        st.success(f"Updated {drawing_number}/{weld_id}.")
+        st.rerun()
+
+
+def stage_button_label(status_value: str) -> str:
+    return stage_icon(status_value).replace("`", "")
+
+
+def stage_icon(status_value: str | None, warn: bool = False) -> str:
+    normalized = (status_value or "").strip().upper()
+    if warn:
+        return "⚠"
+    if normalized in {"COMPLETE", "ACCEPT"}:
+        return "✅"
+    if normalized in {"IN PROGRESS", "PENDING"}:
+        return "🔄"
+    if normalized in {"REJECT", "BLOCKED"}:
+        return "⚠"
+    return "🔲"
 
 
 def render_review_queue_workspace(
