@@ -115,7 +115,7 @@
     {
       "roi_id": "parts_list",
       "type": "roi_bom_table",
-      "bbox_ratio": [0.56, 0.00, 0.99, 0.18],
+      "bbox_ratio": [0.56, 0.00, 0.99, 0.26],
       "overlap": 0.02,
       "source_image_version": "clean"
     },

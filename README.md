@@ -62,6 +62,7 @@ Implemented today:
 - Streamlit demo UI.
 - CLI support for single-file parsing, batch parsing, schema generation, DB initialization, exports, and sample evaluation against local ground truth.
 - Real-sample regression coverage with four drawing styles.
+- BOM semantic column alignment driven by header keywords, fuzzy header matching, and body-column fallback scoring.
 
 Current document profiles:
 
@@ -72,6 +73,15 @@ Current document profiles:
 
 See [docs/sample-profile-analysis.md](docs/sample-profile-analysis.md) for the current sample set and parsing baseline.
 The current machine-readable sample truth set lives in [eval/sample_ground_truth.json](eval/sample_ground_truth.json).
+
+Latest evaluated sample metrics:
+
+- `drawing_number_accuracy = 1.0`
+- `weld_precision_micro = 1.0`
+- `weld_recall_micro = 1.0`
+- `bom_field_accuracy_micro = 1.0`
+
+The current field-level BOM truth coverage is focused on `samples/real/2.jpeg` (`C-52`), where the parser now recovers all 11 labeled BOM rows from the local truth set.
 
 ## Module Status
 

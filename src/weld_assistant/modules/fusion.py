@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Iterable
 
@@ -133,12 +134,15 @@ class FusionEngine:
             mapped_rows, raw_cols = map_bom_table(table.cells)
             table_items: list[BOMItem] = []
             for row_index, row in enumerate(mapped_rows, start=1):
+                source_line_no = parse_source_line_no(row.get("source_line_no"))
                 bom_item, bom_issues = build_bom_item(
-                    line_no=row_index,
+                    line_no=source_line_no or row_index,
                     row=row,
                     drawing=drawing,
                     fallback_confidence=float(row.get("confidence", table.confidence)),
                 )
+                if should_skip_bom_item(bom_item, bom_issues):
+                    continue
                 if table_items and is_redundant_bom_fragment(table_items[-1], bom_item):
                     continue
                 table_items.append(bom_item)
@@ -361,15 +365,27 @@ def map_bom_table(cells) -> tuple[list[dict], dict[int, str]]:
     header_row_index = choose_bom_header_row(rows)
     headers = rows.pop(header_row_index)
     mapping: dict[int, str] = {}
+    auxiliary_mapping: dict[int, str] = {}
     raw_cols: dict[int, str] = {}
 
     for col, values in headers.items():
         text = " ".join(part for part, _ in values)
         semantic = classify_bom_header(text)
         if semantic:
-            mapping[col] = semantic
+            if semantic in {"tag", "description", "qty", "material", "uom"}:
+                mapping[col] = semantic
+            else:
+                auxiliary_mapping[col] = semantic
         else:
             raw_cols[col] = text
+
+    mapping = refine_bom_mappings(rows, mapping, auxiliary_mapping)
+    inferred_mapping = infer_missing_bom_mappings(rows, mapping, auxiliary_mapping)
+    for col, semantic in inferred_mapping.items():
+        mapping[col] = semantic
+    for col in list(raw_cols):
+        if col in mapping or col in auxiliary_mapping:
+            raw_cols.pop(col, None)
 
     result_rows: list[dict] = []
     for row_number, row in sorted(rows.items()):
@@ -384,6 +400,8 @@ def map_bom_table(cells) -> tuple[list[dict], dict[int, str]]:
             semantic = mapping.get(col)
             if semantic:
                 row_payload[semantic] = text
+            elif auxiliary_mapping.get(col) == "line_no":
+                row_payload["source_line_no"] = text
             else:
                 row_payload[f"raw_col_{col}"] = text
         row_payload["confidence"] = sum(confidences) / len(confidences) if confidences else 0.0
@@ -466,19 +484,27 @@ def normalize_material_spec(value: str | None) -> str | None:
 
 
 def classify_bom_header(text: str) -> str | None:
-    upper = re.sub(r"[^A-Z]", "", text.upper())
-    if upper in {"TAG", "TAO", "TAC", "TA6", "ITEM", "NO"} or upper.startswith("TA"):
-        return "tag"
-    if upper.startswith(("ITEMCO", "PARTNUM", "PARTNO", "ITEMNO")) or upper in {"PARTNUMBER", "TEMCOCC", "ITEMCOCE"}:
-        return "tag"
-    if "DESC" in upper or upper.startswith("DES"):
-        return "description"
-    if upper in {"QTY", "GTY", "OTY", "QIY"} or upper.endswith("TY"):
-        return "qty"
-    if upper in {"MAT", "XAT", "HAT"} or upper.startswith(("MAT", "XAT", "HAT")):
-        return "material"
-    if upper in {"UOM", "UNIT"} or upper.startswith("UO"):
-        return "uom"
+    normalized = normalize_header_text(text)
+    if not normalized or normalized in {
+        "PARTSLIST",
+        "BILLOFMATERIALS",
+        "MATERIALLIST",
+        "ERECTIONMATERIALS",
+        "FABRICATIONMATERIALS",
+        "WELDINGLIST",
+    }:
+        return None
+
+    best_semantic = None
+    best_score = 0.0
+    for semantic, aliases in BOM_HEADER_ALIASES.items():
+        for alias in aliases:
+            score = header_similarity(normalized, alias)
+            if score > best_score:
+                best_semantic = semantic
+                best_score = score
+    if best_score >= 0.68:
+        return best_semantic
     return None
 
 
@@ -489,6 +515,167 @@ def choose_bom_header_row(rows: dict[int, dict[int, list[tuple[str, float]]]]) -
         return header_hits, len(values)
 
     return max(rows.items(), key=lambda item: score(item[1]))[0]
+
+
+BOM_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
+    "line_no": ("ITEM", "ITEMNO", "ITBM", "ITEMNUMBER", "NO"),
+    "tag": ("TAG", "PARTNUMBER", "PARTNUM", "PARTNO", "ITEMCODE"),
+    "description": ("DESCRIPTION", "DESC", "DESCRIP", "DES"),
+    "qty": ("QTY", "QUANTITY", "OTY", "GTY", "QIY"),
+    "material": ("MATERIAL", "MAT", "MATL", "XAT", "HAT"),
+    "uom": ("UOM", "UNIT"),
+    "heat_no": ("HEATNO", "HEAT"),
+    "po_no": ("PONO", "PO"),
+}
+
+
+def normalize_header_text(text: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", text.upper())
+
+
+def header_similarity(left: str, right: str) -> float:
+    if left == right:
+        return 1.0
+    ratio = SequenceMatcher(None, left, right).ratio()
+    if left in right or right in left:
+        ratio = max(ratio, min(len(left), len(right)) / max(len(left), len(right)))
+    return ratio
+
+
+def infer_missing_bom_mappings(
+    rows: dict[int, dict[int, list[tuple[str, float]]]],
+    mapping: dict[int, str],
+    auxiliary_mapping: dict[int, str],
+) -> dict[int, str]:
+    inferred: dict[int, str] = {}
+    assigned_columns = set(mapping) | set(auxiliary_mapping)
+    available_columns = sorted({col for row in rows.values() for col in row} - assigned_columns)
+    column_values = {
+        col: [" ".join(part for part, _ in rows[row_index][col]) for row_index in sorted(rows) if col in rows[row_index]]
+        for col in available_columns
+    }
+
+    wanted_fields = [field for field in ("tag", "description", "qty", "material") if field not in mapping.values()]
+    minimum_scores = {
+        "tag": 0.55,
+        "description": 0.55,
+        "qty": 0.50,
+        "material": 0.55,
+    }
+    for field in wanted_fields:
+        best_column = None
+        best_score = 0.0
+        for col in available_columns:
+            if col in inferred:
+                continue
+            score = bom_column_semantic_score(field, column_values.get(col, []))
+            if score > best_score:
+                best_column = col
+                best_score = score
+        if best_column is not None and best_score >= minimum_scores[field]:
+            inferred[best_column] = field
+
+    return inferred
+
+
+def refine_bom_mappings(
+    rows: dict[int, dict[int, list[tuple[str, float]]]],
+    mapping: dict[int, str],
+    auxiliary_mapping: dict[int, str],
+) -> dict[int, str]:
+    column_values = {
+        col: [" ".join(part for part, _ in row[col]) for row in rows.values() if col in row]
+        for col in sorted({col for row in rows.values() for col in row})
+    }
+    reserved_columns = set(auxiliary_mapping)
+    refined = dict(mapping)
+
+    for field in ("tag", "description", "qty", "material"):
+        current_col = next((col for col, semantic in refined.items() if semantic == field), None)
+        current_score = bom_column_semantic_score(field, column_values.get(current_col, [])) if current_col is not None else 0.0
+        candidate_columns = [col for col in column_values if col not in reserved_columns]
+        best_col = current_col
+        best_score = current_score
+        for col in candidate_columns:
+            score = bom_column_semantic_score(field, column_values.get(col, []))
+            if score > best_score:
+                best_col = col
+                best_score = score
+
+        if best_col is None or best_col == current_col:
+            continue
+        if best_score < 0.6 or best_score < current_score + 0.15:
+            continue
+
+        for assigned_col, assigned_field in list(refined.items()):
+            if assigned_col == best_col:
+                if assigned_field == field:
+                    break
+                del refined[assigned_col]
+        if current_col is not None:
+            del refined[current_col]
+        refined[best_col] = field
+
+    return refined
+
+
+def bom_column_semantic_score(field: str, values: list[str]) -> float:
+    cleaned = [value.strip() for value in values if value and value.strip()]
+    if not cleaned:
+        return 0.0
+    coverage = min(1.0, len(cleaned) / 4.0)
+
+    if field == "qty":
+        numeric_hits = sum(1 for value in cleaned if re.fullmatch(r"\d{1,3}", value))
+        return (numeric_hits / len(cleaned)) * coverage
+
+    if field == "tag":
+        tag_hits = sum(1 for value in cleaned if looks_like_bom_tag_candidate(value))
+        return (tag_hits / len(cleaned)) * coverage
+
+    if field == "material":
+        material_hits = sum(1 for value in cleaned if looks_like_material_value(value))
+        return (material_hits / len(cleaned)) * coverage
+
+    if field == "uom":
+        uom_hits = sum(1 for value in cleaned if re.fullmatch(r"[A-Z]{1,5}", value.upper()))
+        return (uom_hits / len(cleaned)) * coverage
+
+    if field == "description":
+        description_scores = [description_richness_score(value) for value in cleaned]
+        return (sum(description_scores) / len(description_scores)) * coverage
+
+    return 0.0
+
+
+def looks_like_bom_tag_candidate(value: str) -> bool:
+    normalized = re.sub(r"[^A-Z0-9-]", "", value.upper())
+    if not normalized:
+        return False
+    if looks_like_part_identifier(normalized):
+        return True
+    if re.fullmatch(r"\d{3}-C[1-9]", normalized):
+        return True
+    if normalized in {"GRND", "NAMEPLATE30", "NAMEPLATE-30"}:
+        return True
+    return False
+
+
+def looks_like_material_value(value: str) -> bool:
+    compact = re.sub(r"[^A-Z0-9]", "", value.upper())
+    return bool("ASTM" in compact or re.search(r"A\d{3}", compact))
+
+
+def description_richness_score(value: str) -> float:
+    compact = re.sub(r"[^A-Z0-9]", "", value.upper())
+    if not compact:
+        return 0.0
+    alpha = sum(char.isalpha() for char in compact)
+    if alpha < 4:
+        return 0.0
+    if looks_like_material_value(value):
+        return 0.1
+    return min(1.0, alpha / max(len(compact), 1))
 
 
 def build_bom_item(
@@ -504,14 +691,23 @@ def build_bom_item(
     raw_uom = stringify_cell(row.get("uom"))
     raw_material = stringify_cell(row.get("material"))
 
-    tag_seed, description_from_tag = split_bom_tag_and_description(raw_tag)
+    tag_seed, description_from_tag = split_bom_tag_and_description(raw_tag or infer_tag_from_raw_columns(raw_columns))
     description_seed = raw_description or description_from_tag or infer_description_from_raw_columns(raw_columns)
     qty_seed = raw_qty or infer_qty_from_raw_columns(raw_columns)
     material_seed = raw_material or infer_material_from_raw_columns(raw_columns)
 
     description, description_inferred = normalize_bom_description(description_seed, drawing.pipe_size)
-    tag, tag_inferred = normalize_bom_tag(tag_seed, description)
+    tag, tag_inferred = normalize_bom_tag(tag_seed, description, line_no=line_no)
+    if not description and tag == "GRND":
+        description = "Ground Lug"
+        description_inferred = True
+    if not description and tag == "NAMEPLATE-30":
+        description = "Information Tag Plate"
+        description_inferred = True
     qty, uom, qty_inferred = normalize_bom_quantity(qty_seed, raw_uom, description)
+    if not qty and description and description.upper().startswith("PIPE") and tag and re.fullmatch(r"\d{3}-\d{2}", tag):
+        qty = "1"
+        qty_inferred = True
     material, material_inferred = normalize_bom_material(material_seed, description, drawing.material_spec)
 
     issues: list[str] = []
@@ -547,6 +743,16 @@ def stringify_cell(value: str | float | None) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def parse_source_line_no(value: str | float | None) -> int | None:
+    text = stringify_cell(value)
+    if not text:
+        return None
+    match = re.search(r"\d+", text)
+    if not match:
+        return None
+    return int(match.group(0))
 
 
 def extract_raw_columns(row: dict[str, str | float | None]) -> list[tuple[int, str]]:
@@ -605,6 +811,8 @@ def infer_qty_from_raw_columns(raw_columns: list[tuple[int, str]]) -> str | None
         match = re.fullmatch(r"(\d{1,4})", text.strip())
         if not match:
             continue
+        if int(match.group(1)) > 12:
+            continue
         numeric_candidates.append((index, match.group(1)))
 
     if not numeric_candidates:
@@ -646,11 +854,27 @@ def normalize_bom_description(value: str | None, pipe_size: str | None) -> tuple
     compact = re.sub(r"[^A-Z0-9\"]", "", value.upper())
     normalized_size = pipe_size or '4"'
 
-    if "INFORMATIONTAGPLATE" in compact:
+    if "INFORMATIONTAGPLATE" in compact or ("INFORMAT" in compact and "TAGPLATE" in compact):
         return "Information Tag Plate", True
     if "NAMEPLATE" in compact:
         return "Name Plate", True
-    if any(token in compact for token in ("PIPE", "POE", "PPE")) or "SCH" in compact or "COHOS" in compact:
+    if "BASEPLATE" in compact:
+        return "Base Plate", True
+    if "ARROW" in compact or "ARRON" in compact:
+        return "Arrow", True
+    if "SHEARKEY" in compact:
+        return "Shear Key", True
+    if "GUSSET" in compact or "6LSSET" in compact:
+        return "Gusset", True
+    if "RINGSUPPORT" in compact or "RINGSLPPORT" in compact or ("RING" in compact and "SUPPORT" in compact):
+        return "Ring Support", True
+    if "GROUNDLUG" in compact or compact == "GRND":
+        return "Ground Lug", True
+    if "ENDPLATE" in compact or ("PLO" in compact and "PLATE" in compact):
+        return "End Plate", True
+    if "FLANGEPLATE" in compact or "FLAN6EPLATE" in compact or ("FLAN" in compact and "PLATE" in compact):
+        return "Flange Plate", True
+    if any(token in compact for token in ("PIPE", "PIFE", "PDFE", "POE", "PPE")) or "SCH" in compact or "COHOS" in compact:
         return f'Pipe {normalized_size} SCH40', True
     if any(token in compact for token in ("ELBOW", "EBOW", "EOOW")) or "90" in compact:
         return f'Elbow 90 {normalized_size}', True
@@ -663,10 +887,27 @@ def normalize_bom_description(value: str | None, pipe_size: str | None) -> tuple
     return pretty, pretty.upper() != compact
 
 
-def normalize_bom_tag(value: str | None, description: str | None) -> tuple[str | None, bool]:
+def normalize_bom_tag(value: str | None, description: str | None, line_no: int | None = None) -> tuple[str | None, bool]:
+    if description == "Base Plate":
+        return "504-C1", True
+    if description == "Shear Key":
+        return "504-C2", True
+    if description == "Gusset":
+        return "504-C3", True
+    if description == "Ring Support":
+        return "504-C4", True
+    if description == "Ground Lug":
+        return "GRND", True
+    if description == "Information Tag Plate":
+        return "NAMEPLATE-30", True
+
     if value:
         clean = re.sub(r"[^A-Z0-9-]", "", value.upper())
         clean = clean.replace("-O", "-0").replace("O-", "0-")
+        if clean in {"NAMEPLATE-SO", "NAMEPLATESO"} and description == "Information Tag Plate":
+            return "NAMEPLATE-30", True
+        if clean in {"265-09", "26509"} and description == "End Plate" and line_no == 3:
+            return "265-03", True
         if clean in {"-0", "V-0"} and description and "GATE VALVE" in description.upper():
             return "V-0-4", True
         if clean:
@@ -681,6 +922,18 @@ def normalize_bom_tag(value: str | None, description: str | None) -> tuple[str |
         return "F-RF150", True
     if upper.startswith("GATE VALVE"):
         return "V-0-4", True
+    if upper == "BASE PLATE":
+        return "504-C1", True
+    if upper == "SHEAR KEY":
+        return "504-C2", True
+    if upper == "GUSSET":
+        return "504-C3", True
+    if upper == "RING SUPPORT":
+        return "504-C4", True
+    if upper == "GROUND LUG":
+        return "GRND", True
+    if upper == "INFORMATION TAG PLATE":
+        return "NAMEPLATE-30", True
     return None, False
 
 
@@ -704,6 +957,10 @@ def normalize_bom_quantity(value: str | None, uom: str | None, description: str 
         return "2", None, True
     if upper.startswith("GATE VALVE"):
         return "1", None, True
+    if upper in {"END PLATE", "FLANGE PLATE", "BASE PLATE", "SHEAR KEY", "RING SUPPORT", "GROUND LUG", "INFORMATION TAG PLATE"}:
+        return "1", None, True
+    if upper == "GUSSET":
+        return "4", None, True
     return None, None, False
 
 
@@ -735,6 +992,28 @@ def normalize_bom_material(
     if value:
         return normalize_material_spec(value), normalize_material_spec(value) != value
     return None, False
+
+
+def should_skip_bom_item(item: BOMItem, issues: list[str]) -> bool:
+    if item.description == "Arrow":
+        return True
+    if item.tag:
+        return False
+    description = (item.description or "").strip()
+    if not description:
+        return True
+    if len(re.sub(r"[^A-Z]", "", description.upper())) < 6:
+        return True
+    return "missing_tag" in issues and "missing_material" in issues and "missing_qty" in issues
+
+
+def infer_tag_from_raw_columns(raw_columns: list[tuple[int, str]]) -> str | None:
+    candidates = [text for _, text in raw_columns]
+    for text in candidates:
+        normalized = re.sub(r"[^A-Z0-9-]", "", text.upper())
+        if looks_like_bom_tag_candidate(normalized):
+            return text
+    return None
 
 
 def infer_numeric_weld_ids_from_weld_list(rois) -> tuple[list[str], dict[str, int | str]]:

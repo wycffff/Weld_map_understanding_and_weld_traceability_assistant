@@ -49,6 +49,7 @@ Sample-by-sample manual truth used today:
 - `2.jpeg`
   - Manual truth drawing number: `C-52`
   - Manual truth weld IDs: `W01..W11`
+  - Manual truth BOM tags: `261-01`, `261-02`, `265-03`, `265-04`, `LFRDKO90520`, `NAMEPLATE-30`, `504-C1`, `504-C2`, `504-C3`, `504-C4`, `GRND`
 - `3.png`
   - Manual truth drawing number: `N-30-P-22009-AA1`
   - Manual truth weld IDs: `1..17`
@@ -68,7 +69,8 @@ As of the latest local run:
 - `2.jpeg`
   - System output drawing number: `C-52`
   - System output weld IDs: `W01..W11`
-  - Status: weld coverage matches the current manual truth set, but BOM quality is still review-heavy.
+  - System output BOM tags: `261-01`, `261-02`, `265-03`, `265-04`, `LFRDKO90520`, `NAMEPLATE-30`, `504-C1`, `504-C2`, `504-C3`, `504-C4`, `GRND`
+  - Status: weld coverage matches the current manual truth set and the current sample evaluation reaches `bom_row_recall = 1.0` and `bom_field_accuracy = 1.0`. The rows still remain review-heavy because several values are heuristic recoveries from noisy OCR, but the normalized outputs now match the current truth set.
 - `3.png`
   - System output drawing number: `N-30-P-22009-AA1`
   - System output weld IDs: `1..17`
@@ -81,6 +83,6 @@ As of the latest local run:
 ## Next Hardening Targets
 
 1. Replace review-first `welding_list` row-count inference with cell-level weld-list parsing.
-2. Improve `parts_list` row normalization so more `C-52` descriptions and materials survive OCR noise.
+2. Improve `parts_list` row normalization so more `C-52` descriptions and materials survive OCR noise, especially beyond the currently covered 11-row truth set.
 3. Add evaluation output for multi-sample regression runs.
 4. Improve low-resolution fallback for stacked isometric sheets like `4.webp`.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from weld_assistant.contracts import DrawingData, ProcessingLog, StructuredDrawing, WeldItem
+from weld_assistant.contracts import BOMItem, DrawingData, ProcessingLog, StructuredDrawing, WeldItem
 from weld_assistant.services.evaluation import evaluate_structured_drawing, summarize_evaluation
 
 
@@ -12,6 +12,7 @@ class EvaluationServiceTest(unittest.TestCase):
             document_id="doc_eval_001",
             drawing=DrawingData(drawing_number="DRAW-001"),
             welds=[WeldItem(weld_id="W01"), WeldItem(weld_id="W02")],
+            bom=[],
             processing_log=ProcessingLog(
                 pipeline_version="0.1.0",
                 processed_at="2026-04-04T10:00:00+03:00",
@@ -36,6 +37,42 @@ class EvaluationServiceTest(unittest.TestCase):
         self.assertEqual(report["weld_false_negative_ids"], ["W03"])
         self.assertEqual(report["weld_precision"], 0.5)
         self.assertEqual(report["weld_recall"], 0.5)
+
+    def test_evaluate_structured_drawing_reports_bom_field_accuracy(self) -> None:
+        structured = StructuredDrawing(
+            document_id="doc_eval_002",
+            drawing=DrawingData(drawing_number="DRAW-002"),
+            bom=[
+                BOMItem(line_no=1, tag="504-C1", description="Base Plate", qty="1"),
+                BOMItem(line_no=2, tag="504-C2", description="Gusset", qty="1"),
+            ],
+            processing_log=ProcessingLog(
+                pipeline_version="0.1.0",
+                processed_at="2026-04-04T10:00:00+03:00",
+                layout_confidence="high",
+                ocr_engine="test",
+            ),
+        )
+
+        report = evaluate_structured_drawing(
+            input_file="samples/real/demo.png",
+            structured=structured,
+            sample_truth={
+                "drawing_number": "DRAW-002",
+                "weld_ids": [],
+                "bom_count": 2,
+                "bom_items": [
+                    {"tag": "504-C1", "qty": "1", "description": "Base Plate"},
+                    {"tag": "504-C2", "qty": "1", "description": "Shear Key"},
+                ],
+            },
+        )
+
+        self.assertEqual(report["bom_truth_row_count"], 2)
+        self.assertEqual(report["bom_predicted_match_count"], 2)
+        self.assertEqual(report["bom_field_total"], 6)
+        self.assertEqual(report["bom_field_matches"], 5)
+        self.assertEqual(report["bom_field_accuracy"], 0.8333)
 
     def test_summarize_evaluation_ignores_excluded_samples(self) -> None:
         summary = summarize_evaluation(

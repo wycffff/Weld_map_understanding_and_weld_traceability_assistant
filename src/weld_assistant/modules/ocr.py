@@ -6,7 +6,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from weld_assistant.config import AppConfig
 from weld_assistant.contracts import LayoutPlan, OCRResult, OCRTable, OCRTableCell, OCRToken, PreprocessedDocument
@@ -23,13 +23,15 @@ class BaseOCREngine:
     def __init__(self, config: AppConfig):
         self.config = config
         self.output_dir = ensure_dir(Path(config.pipeline.data_root) / "ocr")
+        self.prepared_dir = ensure_dir(Path(config.pipeline.data_root) / "ocr_prepared")
 
     def extract_layout(self, doc: PreprocessedDocument, layout_plan: LayoutPlan) -> OCRResult:
         tokens: list[OCRToken] = []
         tables: list[OCRTable] = []
         for roi in layout_plan.rois:
+            prepared_image = self._prepare_roi_image(roi.image_path or "", {"roi_id": roi.roi_id, "roi_type": roi.type})
             result = self.extract(
-                roi.image_path or "",
+                prepared_image,
                 {"roi_id": roi.roi_id, "roi_type": roi.type, "weld_hint": roi.weld_hint},
             )
             tokens.extend(result.get("tokens", []))
@@ -41,6 +43,25 @@ class BaseOCREngine:
 
     def extract(self, roi_image: str, roi_meta: dict[str, Any]) -> dict[str, list[Any]]:
         raise NotImplementedError
+
+    def _prepare_roi_image(self, roi_image: str, roi_meta: dict[str, Any]) -> str:
+        if not roi_image or roi_meta.get("roi_type") != "roi_bom_table":
+            return roi_image
+
+        path = Path(roi_image)
+        try:
+            image = Image.open(path).convert("L")
+        except Exception:
+            return roi_image
+
+        scale = 2
+        if image.width < 900:
+            scale = 3
+        resized = image.resize((image.width * scale, image.height * scale))
+        enhanced = ImageOps.autocontrast(resized)
+        prepared_path = self.prepared_dir / f"{path.stem}_prep.png"
+        enhanced.save(prepared_path)
+        return str(prepared_path)
 
 
 class PaddleOCREngine(BaseOCREngine):

@@ -12,6 +12,19 @@
       "drawing_number": "C-52",
       "weld_ids": ["W01", "W02", "W03", "W04", "W05", "W06", "W07", "W08", "W09", "W10", "W11"],
       "bom_count": 11,
+      "bom_items": [
+        {"tag": "261-01", "qty": "1", "description": "Pipe"},
+        {"tag": "261-02", "qty": "1", "description": "Pipe"},
+        {"tag": "265-03", "qty": "1", "description": "End Plate"},
+        {"tag": "265-04", "qty": "1", "description": "End Plate"},
+        {"tag": "LFRDKO90520", "qty": "1", "description": "Flange Plate"},
+        {"tag": "NAMEPLATE-30", "qty": "1", "description": "Information Tag Plate"},
+        {"tag": "504-C1", "qty": "1", "description": "Base Plate"},
+        {"tag": "504-C2", "qty": "1", "description": "Shear Key"},
+        {"tag": "504-C3", "qty": "4", "description": "Gusset"},
+        {"tag": "504-C4", "qty": "1", "description": "Ring Support"},
+        {"tag": "GRND", "qty": "1", "description": "Ground Lug"}
+      ],
       "notes": "The weld boxes in the upper-left area define the main weld-id truth set for this sample."
     },
     {

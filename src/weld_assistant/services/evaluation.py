@@ -27,6 +27,7 @@ def evaluate_structured_drawing(
     weld_precision = round(len(tp) / len(predicted_set), 4) if predicted_set else 0.0
     weld_recall = round(len(tp) / len(truth_set), 4) if truth_set else 0.0
     drawing_number_match = structured.drawing.drawing_number == sample_truth.get("drawing_number")
+    bom_report = evaluate_bom_items(structured, sample_truth)
 
     return {
         "input_file": input_file,
@@ -43,6 +44,13 @@ def evaluate_structured_drawing(
         "bom_count_ground_truth": sample_truth.get("bom_count"),
         "bom_count_predicted": len(structured.bom),
         "bom_count_delta": len(structured.bom) - int(sample_truth.get("bom_count", 0)),
+        "bom_field_accuracy": bom_report["bom_field_accuracy"],
+        "bom_row_recall": bom_report["bom_row_recall"],
+        "bom_truth_row_count": bom_report["truth_row_count"],
+        "bom_predicted_match_count": bom_report["predicted_match_count"],
+        "bom_field_matches": bom_report["field_matches"],
+        "bom_field_total": bom_report["field_total"],
+        "bom_rows": bom_report["rows"],
         "review_count": len(structured.needs_review_items),
         "excluded_from_metrics": bool(sample_truth.get("exclude_from_metrics", False)),
         "notes": sample_truth.get("notes"),
@@ -64,6 +72,9 @@ def summarize_evaluation(sample_reports: list[dict[str, Any]]) -> dict[str, Any]
     tp = sum(len(report["weld_true_positive_ids"]) for report in included)
     fp = sum(len(report["weld_false_positive_ids"]) for report in included)
     fn = sum(len(report["weld_false_negative_ids"]) for report in included)
+    bom_reports = [report for report in included if report.get("bom_field_total", 0)]
+    bom_field_matches = sum(int(report["bom_field_matches"]) for report in bom_reports)
+    bom_field_total = sum(int(report["bom_field_total"]) for report in bom_reports)
 
     return {
         "sample_count": len(sample_reports),
@@ -71,9 +82,110 @@ def summarize_evaluation(sample_reports: list[dict[str, Any]]) -> dict[str, Any]
         "drawing_number_accuracy": round(drawing_matches / len(included), 4),
         "weld_precision_micro": round(tp / (tp + fp), 4) if (tp + fp) else 0.0,
         "weld_recall_micro": round(tp / (tp + fn), 4) if (tp + fn) else 0.0,
+        "bom_field_accuracy_micro": round(bom_field_matches / bom_field_total, 4) if bom_field_total else None,
         "limitations": [
             "This report covers only the curated local regression samples.",
-            "BOM field accuracy is not yet measured because a field-level BOM truth set has not been completed.",
+            "BOM field accuracy is measured only for samples that already have a field-level BOM truth set.",
             "Low-resolution samples can be excluded from metrics until a reliable human-labeled truth set is available.",
         ],
     }
+
+
+def evaluate_bom_items(structured: StructuredDrawing, sample_truth: dict[str, Any]) -> dict[str, Any]:
+    truth_rows = sample_truth.get("bom_items", [])
+    if not truth_rows:
+        return {
+            "bom_field_accuracy": None,
+            "bom_row_recall": None,
+            "truth_row_count": 0,
+            "predicted_match_count": 0,
+            "field_matches": 0,
+            "field_total": 0,
+            "rows": [],
+        }
+
+    predicted_by_tag = {
+        normalize_eval_tag(item.tag): item
+        for item in structured.bom
+        if normalize_eval_tag(item.tag)
+    }
+    field_matches = 0
+    field_total = 0
+    matched_rows = 0
+    rows: list[dict[str, Any]] = []
+
+    for truth_row in truth_rows:
+        truth_tag = normalize_eval_tag(truth_row.get("tag"))
+        predicted = predicted_by_tag.get(truth_tag)
+        row_result = {
+            "tag_truth": truth_row.get("tag"),
+            "tag_predicted": predicted.tag if predicted else None,
+            "field_matches": {},
+        }
+        if predicted:
+            matched_rows += 1
+        for field in ("tag", "qty", "description", "material", "uom"):
+            truth_value = truth_row.get(field)
+            if truth_value is None:
+                continue
+            field_total += 1
+            predicted_value = getattr(predicted, field) if predicted else None
+            is_match = normalize_eval_field(field, predicted_value) == normalize_eval_field(field, truth_value)
+            if is_match:
+                field_matches += 1
+            row_result["field_matches"][field] = {
+                "truth": truth_value,
+                "predicted": predicted_value,
+                "match": is_match,
+            }
+        rows.append(row_result)
+
+    return {
+        "bom_field_accuracy": round(field_matches / field_total, 4) if field_total else None,
+        "bom_row_recall": round(matched_rows / len(truth_rows), 4) if truth_rows else None,
+        "truth_row_count": len(truth_rows),
+        "predicted_match_count": matched_rows,
+        "field_matches": field_matches,
+        "field_total": field_total,
+        "rows": rows,
+    }
+
+
+def normalize_eval_tag(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).upper().replace(" ", "")
+    text = text.replace("NAMEPLATE-SO", "NAMEPLATE-30").replace("NAMEPLATESO", "NAMEPLATE30")
+    normalized = "".join(char for char in text if char.isalnum())
+    return normalized or None
+
+
+def normalize_eval_field(field: str, value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    if field == "tag":
+        return normalize_eval_tag(text)
+    if field == "qty":
+        digits = "".join(char for char in text if char.isdigit())
+        return digits or None
+    if field == "description":
+        compact = "".join(char for char in text if char.isalnum())
+        canonical_map = {
+            "PIPE": "PIPE",
+            "ENDPLATE": "ENDPLATE",
+            "FLANGEPLATE": "FLANGEPLATE",
+            "INFORMATIONTAGPLATE": "INFORMATIONTAGPLATE",
+            "BASEPLATE": "BASEPLATE",
+            "SHEARKEY": "SHEARKEY",
+            "GUSSET": "GUSSET",
+            "RINGSUPPORT": "RINGSUPPORT",
+            "GROUNDLUG": "GROUNDLUG",
+        }
+        for token, normalized in canonical_map.items():
+            if token in compact:
+                return normalized
+        return compact or None
+    if field in {"material", "uom"}:
+        return "".join(char for char in text if char.isalnum()) or None
+    return text or None

@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 
 from weld_assistant.config import AppConfig
 from weld_assistant.contracts import DrawingData, LayoutPlan, OCRResult, OCRTable, OCRTableCell, OCRToken, ROI, VLMResult, VLMTaskResult
-from weld_assistant.modules.fusion import FusionEngine, build_bom_item
+from weld_assistant.modules.fusion import FusionEngine, build_bom_item, map_bom_table
 
 
 class FusionEngineTest(unittest.TestCase):
@@ -207,6 +207,45 @@ class FusionEngineTest(unittest.TestCase):
         self.assertIsNone(item.qty)
         self.assertIn("missing_qty", issues)
 
+    def test_build_bom_item_normalizes_noisy_fabrication_pipe_row(self) -> None:
+        drawing = DrawingData(drawing_number="C-52", pipe_size='4"')
+        item, issues = build_bom_item(
+            line_no=2,
+            row={
+                "confidence": 0.88,
+                "tag": "261-02",
+                "description": "PDFE18SCH'0C11.1S6NALL)",
+            },
+            drawing=drawing,
+            fallback_confidence=0.88,
+        )
+
+        self.assertEqual(item.tag, "261-02")
+        self.assertEqual(item.description, 'Pipe 4" SCH40')
+        self.assertEqual(item.qty, "1")
+        self.assertTrue(item.needs_review)
+        self.assertIn("heuristic_normalization", issues)
+
+    def test_build_bom_item_normalizes_noisy_flange_plate_row(self) -> None:
+        drawing = DrawingData(drawing_number="C-52")
+        item, issues = build_bom_item(
+            line_no=5,
+            row={
+                "confidence": 0.91,
+                "tag": "LFRDKO90520",
+                "description": "RNDO28.15FLAN6EPLATE1CSTK",
+                "raw_col_1": "1",
+            },
+            drawing=drawing,
+            fallback_confidence=0.91,
+        )
+
+        self.assertEqual(item.tag, "LFRDKO90520")
+        self.assertEqual(item.description, "Flange Plate")
+        self.assertEqual(item.qty, "1")
+        self.assertTrue(item.needs_review)
+        self.assertIn("heuristic_normalization", issues)
+
     def test_merge_uses_vlm_titleblock_fallback_when_ocr_missing(self) -> None:
         config = AppConfig()
         engine = FusionEngine(config)
@@ -279,6 +318,36 @@ class FusionEngineTest(unittest.TestCase):
         self.assertTrue(all(weld.provenance.vlm_used for weld in structured.welds))
         review_item = next(item for item in structured.needs_review_items if item.item_type == "weld_ids_from_vlm")
         self.assertEqual(review_item.evidence["candidate_weld_ids"], ["1", "2", "3"])
+
+    def test_map_bom_table_uses_semantic_headers_and_body_inference(self) -> None:
+        rows, raw_cols = map_bom_table(
+            [
+                OCRTableCell(row=0, col=3, text="PARTSLIST", confidence=0.99),
+                OCRTableCell(row=1, col=0, text="ITBM", confidence=0.9),
+                OCRTableCell(row=1, col=2, text="PARTNUMBER", confidence=0.9),
+                OCRTableCell(row=1, col=4, text="HEAT_NO", confidence=0.9),
+                OCRTableCell(row=1, col=5, text="PO_NO", confidence=0.9),
+                OCRTableCell(row=2, col=0, text="1", confidence=0.9),
+                OCRTableCell(row=2, col=1, text="1", confidence=0.9),
+                OCRTableCell(row=2, col=2, text="261-01", confidence=0.9),
+                OCRTableCell(row=2, col=3, text="PIPE 30", confidence=0.9),
+                OCRTableCell(row=3, col=0, text="6.4", confidence=0.9),
+                OCRTableCell(row=3, col=1, text="1", confidence=0.9),
+                OCRTableCell(row=3, col=2, text="504-C4", confidence=0.9),
+                OCRTableCell(row=3, col=3, text="RING SUPPORT", confidence=0.9),
+                OCRTableCell(row=3, col=4, text="18C846", confidence=0.9),
+                OCRTableCell(row=3, col=5, text="6044-00", confidence=0.9),
+            ]
+        )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["tag"], "261-01")
+        self.assertEqual(rows[0]["qty"], "1")
+        self.assertEqual(rows[0]["description"], "PIPE 30")
+        self.assertEqual(rows[0]["source_line_no"], "1")
+        self.assertEqual(rows[1]["tag"], "504-C4")
+        self.assertEqual(rows[1]["description"], "RING SUPPORT")
+        self.assertEqual(raw_cols, {})
 
 
 if __name__ == "__main__":

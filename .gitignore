@@ -20,6 +20,7 @@ data/raw/
 data/processed/
 data/rois/
 data/ocr/
+data/ocr_prepared/
 data/vlm/
 data/final/
 data/photos/
@@ -28,4 +29,3 @@ data/test_runs/
 
 # Keep folders if created
 data/.gitkeep
-
