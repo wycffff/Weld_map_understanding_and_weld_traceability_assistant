@@ -186,16 +186,16 @@ python -m unittest discover -s tests -v
 
 Latest local batch summary:
 
-- `1.jpg` -> drawing `4-N1-101`, `5` BOM rows, `1` weld
-- `2.jpeg` -> drawing `C-52`, `1` BOM row, `11` welds
-- `3.png` -> drawing `N-30-P-22009-AA1`, `2` BOM rows, `17` numeric welds inferred from the welding list
+- `1.jpg` -> drawing `4-N1-101`, `4` BOM rows, `1` weld
+- `2.jpeg` -> drawing `C-52`, `6` BOM rows, `11` welds
+- `3.png` -> drawing `N-30-P-22009-AA1`, `3` BOM rows, `17` numeric welds inferred from the welding list
 - `4.webp` -> low-resolution fallback, review-first
 
-This baseline is intentionally incomplete. The goal right now is reliable modular parsing with reviewable outputs, then continued hardening toward customer-grade accuracy across multiple drawing styles.
+This baseline is intentionally incomplete. The current focus is reliable modular parsing with reviewable outputs, then continued hardening toward customer-grade accuracy across multiple drawing styles.
 
 ## Next Priorities
 
-- Improve `WELDING LIST` extraction for welding-map sheets.
-- Expand parts-list and item-code table mapping.
+- Replace review-first `WELDING LIST` row-count inference with cell-level weld-list parsing.
+- Improve parts-list normalization so more `C-52` rows keep usable descriptions and materials.
 - Strengthen low-resolution fallback for stacked isometric pages.
 - Add more evaluation metrics and regression outputs for real samples.

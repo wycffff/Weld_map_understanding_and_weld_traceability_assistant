@@ -90,6 +90,7 @@ class FusionEngine:
         items: list[BOMItem] = []
         for table in ocr.tables:
             mapped_rows, raw_cols = map_bom_table(table.cells)
+            table_items: list[BOMItem] = []
             for row_index, row in enumerate(mapped_rows, start=1):
                 bom_item, bom_issues = build_bom_item(
                     line_no=row_index,
@@ -97,6 +98,9 @@ class FusionEngine:
                     drawing=drawing,
                     fallback_confidence=float(row.get("confidence", table.confidence)),
                 )
+                if table_items and is_redundant_bom_fragment(table_items[-1], bom_item):
+                    continue
+                table_items.append(bom_item)
                 items.append(bom_item)
                 if bom_issues:
                     review_items.append(
@@ -368,16 +372,22 @@ def build_bom_item(
     drawing: DrawingData,
     fallback_confidence: float,
 ) -> tuple[BOMItem, list[str]]:
+    raw_columns = extract_raw_columns(row)
     raw_tag = stringify_cell(row.get("tag"))
     raw_description = stringify_cell(row.get("description"))
     raw_qty = stringify_cell(row.get("qty"))
     raw_uom = stringify_cell(row.get("uom"))
     raw_material = stringify_cell(row.get("material"))
 
-    description, description_inferred = normalize_bom_description(raw_description, drawing.pipe_size)
-    tag, tag_inferred = normalize_bom_tag(raw_tag, description)
-    qty, uom, qty_inferred = normalize_bom_quantity(raw_qty, raw_uom, description)
-    material, material_inferred = normalize_bom_material(raw_material, description, drawing.material_spec)
+    tag_seed, description_from_tag = split_bom_tag_and_description(raw_tag)
+    description_seed = raw_description or description_from_tag or infer_description_from_raw_columns(raw_columns)
+    qty_seed = raw_qty or infer_qty_from_raw_columns(raw_columns)
+    material_seed = raw_material or infer_material_from_raw_columns(raw_columns)
+
+    description, description_inferred = normalize_bom_description(description_seed, drawing.pipe_size)
+    tag, tag_inferred = normalize_bom_tag(tag_seed, description)
+    qty, uom, qty_inferred = normalize_bom_quantity(qty_seed, raw_uom, description)
+    material, material_inferred = normalize_bom_material(material_seed, description, drawing.material_spec)
 
     issues: list[str] = []
     if any((description_inferred, tag_inferred, qty_inferred, material_inferred)):
@@ -414,12 +424,107 @@ def stringify_cell(value: str | float | None) -> str | None:
     return text or None
 
 
+def extract_raw_columns(row: dict[str, str | float | None]) -> list[tuple[int, str]]:
+    raw_columns: list[tuple[int, str]] = []
+    for key, value in row.items():
+        if not key.startswith("raw_col_"):
+            continue
+        text = stringify_cell(value)
+        if not text:
+            continue
+        try:
+            index = int(key.rsplit("_", 1)[-1])
+        except ValueError:
+            continue
+        raw_columns.append((index, text))
+    return sorted(raw_columns)
+
+
+def split_bom_tag_and_description(value: str | None) -> tuple[str | None, str | None]:
+    if not value:
+        return None, None
+    parts = [part for part in re.split(r"\s+", value.strip()) if part]
+    if len(parts) <= 1:
+        return value, None
+
+    first = parts[0]
+    clean_first = re.sub(r"[^A-Z0-9-]", "", first.upper())
+    if not looks_like_part_identifier(clean_first):
+        return value, None
+    return clean_first, " ".join(parts[1:]) or None
+
+
+def looks_like_part_identifier(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Z0-9]+(?:-[A-Z0-9]+)+", value))
+
+
+def infer_description_from_raw_columns(raw_columns: list[tuple[int, str]]) -> str | None:
+    candidates: list[tuple[tuple[int, int, int], str]] = []
+    for index, text in raw_columns:
+        compact = re.sub(r"[^A-Z0-9]", "", text.upper())
+        alpha_count = sum(char.isalpha() for char in compact)
+        if alpha_count < 4:
+            continue
+        if "ASTM" in compact:
+            continue
+        score = (alpha_count, len(compact), -index)
+        candidates.append((score, text))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def infer_qty_from_raw_columns(raw_columns: list[tuple[int, str]]) -> str | None:
+    numeric_candidates: list[tuple[int, str]] = []
+    for index, text in raw_columns:
+        match = re.fullmatch(r"(\d{1,4})", text.strip())
+        if not match:
+            continue
+        numeric_candidates.append((index, match.group(1)))
+
+    if not numeric_candidates:
+        return None
+
+    preferred = [candidate for candidate in numeric_candidates if candidate[0] > 0]
+    if preferred:
+        return min(preferred, key=lambda item: item[0])[1]
+    return None
+
+
+def infer_material_from_raw_columns(raw_columns: list[tuple[int, str]]) -> str | None:
+    for _, text in raw_columns:
+        compact = re.sub(r"[^A-Z0-9]", "", text.upper())
+        if "ASTM" in compact or re.search(r"A\d{3}", compact):
+            return text
+    return None
+
+
+def is_redundant_bom_fragment(previous: BOMItem, current: BOMItem) -> bool:
+    if previous.tag and current.tag and previous.tag == current.tag:
+        if previous.description == current.description and previous.material == current.material:
+            return True
+
+    if not current.tag and previous.tag and current.description and current.description == previous.description:
+        if not current.qty and (not current.material or current.material == previous.material):
+            return True
+
+    if previous.description and current.description and previous.description == current.description:
+        if previous.material == current.material and previous.qty == current.qty and previous.tag == current.tag:
+            return True
+
+    return False
+
+
 def normalize_bom_description(value: str | None, pipe_size: str | None) -> tuple[str | None, bool]:
     if not value:
         return None, False
     compact = re.sub(r"[^A-Z0-9\"]", "", value.upper())
     normalized_size = pipe_size or '4"'
 
+    if "INFORMATIONTAGPLATE" in compact:
+        return "Information Tag Plate", True
+    if "NAMEPLATE" in compact:
+        return "Name Plate", True
     if any(token in compact for token in ("PIPE", "POE", "PPE")) or "SCH" in compact or "COHOS" in compact:
         return f'Pipe {normalized_size} SCH40', True
     if any(token in compact for token in ("ELBOW", "EBOW", "EOOW")) or "90" in compact:

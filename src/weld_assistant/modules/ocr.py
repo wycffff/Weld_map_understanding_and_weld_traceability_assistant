@@ -214,7 +214,7 @@ def build_table_from_tokens(roi_id: str, tokens: list[OCRToken], row_tolerance: 
         return OCRTable(roi_id=roi_id, cells=[], html=None, confidence=0.0)
 
     sorted_tokens = sorted(tokens, key=lambda token: ((token.bbox[1] + token.bbox[3]) / 2, token.bbox[0]))
-    adaptive_tolerance = max(row_tolerance, _adaptive_row_tolerance(sorted_tokens))
+    adaptive_tolerance = max(row_tolerance, _adaptive_row_tolerance(sorted_tokens, roi_id))
     rows = _cluster_tokens_by_y(sorted_tokens, adaptive_tolerance)
 
     def header_score(row: list[OCRToken]) -> tuple[int, int]:
@@ -223,9 +223,10 @@ def build_table_from_tokens(roi_id: str, tokens: list[OCRToken], row_tolerance: 
 
     header_candidates = [row for row in rows if len(row) > 1]
     header_row = max(header_candidates or rows, key=header_score)
-    header_positions = sorted(
-        [((token.bbox[0] + token.bbox[2]) / 2, idx) for idx, token in enumerate(sorted(header_row, key=lambda item: item.bbox[0]))]
-    )
+    if roi_id == "parts_list":
+        column_positions = _build_table_column_positions(rows, header_row, roi_id)
+    else:
+        column_positions = _header_column_positions(header_row)
 
     cells: list[OCRTableCell] = []
     row_index = 0
@@ -233,8 +234,8 @@ def build_table_from_tokens(roi_id: str, tokens: list[OCRToken], row_tolerance: 
         ordered = sorted(row, key=lambda item: item.bbox[0])
         for token in ordered:
             center_x = (token.bbox[0] + token.bbox[2]) / 2
-            if header_positions:
-                col_index = min(header_positions, key=lambda item: abs(center_x - item[0]))[1]
+            if column_positions:
+                col_index = min(column_positions, key=lambda item: abs(center_x - item[0]))[1]
             else:
                 col_index = ordered.index(token)
             cells.append(
@@ -259,11 +260,74 @@ def _looks_like_bom_header(text: str) -> bool:
     )
 
 
-def _adaptive_row_tolerance(tokens: list[OCRToken]) -> int:
+def _adaptive_row_tolerance(tokens: list[OCRToken], roi_id: str) -> int:
     heights = [max(1, token.bbox[3] - token.bbox[1]) for token in tokens]
     if not heights:
         return 0
-    return min(80, max(40, int(median(heights) * 0.9)))
+    if roi_id == "parts_list":
+        return min(20, max(8, int(median(heights) * 0.75)))
+    return min(48, max(28, int(median(heights) * 1.2)))
+
+
+def _header_column_positions(header_row: list[OCRToken]) -> list[tuple[float, int]]:
+    ordered_header = sorted(header_row, key=lambda item: item.bbox[0])
+    header_centers = [((token.bbox[0] + token.bbox[2]) / 2) for token in ordered_header]
+    return [(center, index) for index, center in enumerate(header_centers)]
+
+
+def _build_table_column_positions(rows: list[list[OCRToken]], header_row: list[OCRToken], roi_id: str) -> list[tuple[float, int]]:
+    header_positions = _header_column_positions(header_row)
+    header_centers = [center for center, _ in header_positions]
+    if not header_centers:
+        return []
+
+    column_tolerance = _adaptive_column_tolerance([token for row in rows for token in row], roi_id)
+    extra_candidates: list[tuple[float, int]] = []
+    for row_index, row in enumerate(rows):
+        if row is header_row:
+            continue
+        for token in row:
+            center_x = (token.bbox[0] + token.bbox[2]) / 2
+            nearest_distance = min(abs(center_x - header_center) for header_center in header_centers)
+            if nearest_distance <= column_tolerance:
+                continue
+            extra_candidates.append((center_x, row_index))
+
+    extra_centers = _cluster_extra_column_centers(extra_candidates, tolerance=column_tolerance)
+    ordered_centers = sorted(header_centers + extra_centers)
+    return [(center, index) for index, center in enumerate(ordered_centers)]
+
+
+def _adaptive_column_tolerance(tokens: list[OCRToken], roi_id: str) -> int:
+    widths = [max(1, token.bbox[2] - token.bbox[0]) for token in tokens]
+    if not widths:
+        return 64 if roi_id == "parts_list" else 28
+    if roi_id == "parts_list":
+        return min(96, max(60, int(median(widths) * 1.2)))
+    return min(72, max(28, int(median(widths) * 0.5)))
+
+
+def _cluster_extra_column_centers(candidates: list[tuple[float, int]], tolerance: int) -> list[float]:
+    if not candidates:
+        return []
+
+    sorted_candidates = sorted(candidates, key=lambda item: item[0])
+    clusters: list[list[tuple[float, int]]] = [[sorted_candidates[0]]]
+    for center_x, row_index in sorted_candidates[1:]:
+        last_cluster = clusters[-1]
+        last_center = sum(item[0] for item in last_cluster) / len(last_cluster)
+        if abs(center_x - last_center) <= tolerance:
+            last_cluster.append((center_x, row_index))
+        else:
+            clusters.append([(center_x, row_index)])
+
+    extra_centers: list[float] = []
+    for cluster in clusters:
+        distinct_rows = {row_index for _, row_index in cluster}
+        if len(distinct_rows) < 2:
+            continue
+        extra_centers.append(sum(center_x for center_x, _ in cluster) / len(cluster))
+    return extra_centers
 
 
 def _cluster_tokens_by_y(tokens: list[OCRToken], row_tolerance: int) -> list[list[OCRToken]]:

@@ -7,8 +7,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from weld_assistant.config import AppConfig
-from weld_assistant.contracts import LayoutPlan, OCRResult, OCRTable, OCRTableCell, OCRToken, ROI, VLMResult, VLMTaskResult
-from weld_assistant.modules.fusion import FusionEngine
+from weld_assistant.contracts import DrawingData, LayoutPlan, OCRResult, OCRTable, OCRTableCell, OCRToken, ROI, VLMResult, VLMTaskResult
+from weld_assistant.modules.fusion import FusionEngine, build_bom_item
 
 
 class FusionEngineTest(unittest.TestCase):
@@ -164,6 +164,47 @@ class FusionEngineTest(unittest.TestCase):
         self.assertEqual([weld.weld_id for weld in structured.welds], ["1", "2", "3", "4", "5"])
         self.assertTrue(all(weld.needs_review for weld in structured.welds))
         self.assertIn("numeric_weld_ids_inferred", [item.item_type for item in structured.needs_review_items])
+
+    def test_build_bom_item_uses_unmapped_columns_and_split_tag_text(self) -> None:
+        drawing = DrawingData(drawing_number="C-52")
+        item, issues = build_bom_item(
+            line_no=6,
+            row={
+                "confidence": 0.91,
+                "tag": "NAMEPLATE-30 INFORMATIONTAGPLATE",
+                "raw_col_0": "6",
+                "raw_col_1": "1",
+                "raw_col_4": "ASTM A105",
+            },
+            drawing=drawing,
+            fallback_confidence=0.91,
+        )
+
+        self.assertEqual(item.tag, "NAMEPLATE-30")
+        self.assertEqual(item.description, "Information Tag Plate")
+        self.assertEqual(item.qty, "1")
+        self.assertEqual(item.material, "ASTM A105")
+        self.assertTrue(item.needs_review)
+        self.assertIn("heuristic_normalization", issues)
+
+    def test_build_bom_item_does_not_promote_item_number_to_quantity(self) -> None:
+        drawing = DrawingData(drawing_number="C-52")
+        item, issues = build_bom_item(
+            line_no=3,
+            row={
+                "confidence": 0.88,
+                "raw_col_0": "3",
+                "tag": "265-03",
+                "raw_col_3": "Support Bracket",
+            },
+            drawing=drawing,
+            fallback_confidence=0.88,
+        )
+
+        self.assertEqual(item.tag, "265-03")
+        self.assertEqual(item.description, "Support Bracket")
+        self.assertIsNone(item.qty)
+        self.assertIn("missing_qty", issues)
 
 
 if __name__ == "__main__":

@@ -40,14 +40,14 @@
 
 As of the latest local run:
 
-- `1.jpg`: drawing number is stable, weld `W01` is found, BOM rows are partially normalized but still review-heavy.
-- `2.jpeg`: drawing number `C-52` is found, weld boxes are found (`W01..W11`), parts list extraction has started but is not complete.
-- `3.png`: line id `N-30-P-22009-AA1` is found, right-side tables start producing rows, and the welding list now yields `17` numeric weld IDs through review-first grid inference.
+- `1.jpg`: drawing number is stable, weld `W01` is found, and the compact BOM now resolves to `4` usable rows instead of fragmented duplicates.
+- `2.jpeg`: drawing number `C-52` is found, weld boxes are found (`W01..W11`), and the parts list now produces `6` reviewable BOM rows.
+- `3.png`: line id `N-30-P-22009-AA1` is found, right-side tables now produce `3` rows, and the welding list yields `17` numeric weld IDs through review-first grid inference.
 - `4.webp`: OCR can classify the page style, but text is too small for reliable title/BOM extraction; this sample remains review-first.
 
 ## Next Hardening Targets
 
 1. Replace review-first `welding_list` row-count inference with cell-level weld-list parsing.
-2. Expand `parts list` / `item code` header mapping for more BOM variants.
+2. Improve `parts_list` row normalization so more `C-52` descriptions and materials survive OCR noise.
 3. Add evaluation output for multi-sample regression runs.
 4. Improve low-resolution fallback for stacked isometric sheets like `4.webp`.
