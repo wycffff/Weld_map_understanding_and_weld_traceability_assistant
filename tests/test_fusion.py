@@ -4,8 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from PIL import Image, ImageDraw
+
 from weld_assistant.config import AppConfig
-from weld_assistant.contracts import LayoutPlan, OCRResult, OCRTable, OCRTableCell, OCRToken, VLMResult, VLMTaskResult
+from weld_assistant.contracts import LayoutPlan, OCRResult, OCRTable, OCRTableCell, OCRToken, ROI, VLMResult, VLMTaskResult
 from weld_assistant.modules.fusion import FusionEngine
 
 
@@ -123,6 +125,45 @@ class FusionEngineTest(unittest.TestCase):
         self.assertEqual(structured.bom[2].description, 'Gate Valve 4"')
         self.assertEqual(structured.bom[2].material, "ASTM A216")
         self.assertTrue(all(item.needs_review for item in structured.bom[1:]))
+
+    def test_merge_infers_numeric_weld_ids_from_welding_list_grid(self) -> None:
+        config = AppConfig()
+        engine = FusionEngine(config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            weld_list_path = Path(tmpdir) / "weld_list.png"
+            image = Image.new("L", (240, 160), color=255)
+            draw = ImageDraw.Draw(image)
+            for y in [10, 30, 50, 70, 90, 110, 130]:
+                draw.line((10, y, 230, y), fill=0, width=2)
+            image.save(weld_list_path)
+
+            layout = LayoutPlan(
+                document_id="doc_test_0003",
+                rois=[
+                    ROI(
+                        roi_id="weld_list",
+                        type="roi_bom_table",
+                        bbox=[0, 0, 240, 160],
+                        image_path=str(weld_list_path),
+                    )
+                ],
+                layout_log={"layout_confidence": "high", "document_profile": "welding_map_sheet"},
+            )
+            ocr = OCRResult(
+                document_id="doc_test_0003",
+                engine="test",
+                tokens=[
+                    OCRToken(text="N-30-P-22009-AA1", bbox=[0, 0, 10, 10], confidence=0.95, roi_id="titleblock"),
+                ],
+                tables=[],
+            )
+
+            structured = engine.merge(layout, ocr, None)
+
+        self.assertEqual([weld.weld_id for weld in structured.welds], ["1", "2", "3", "4", "5"])
+        self.assertTrue(all(weld.needs_review for weld in structured.welds))
+        self.assertIn("numeric_weld_ids_inferred", [item.item_type for item in structured.needs_review_items])
 
 
 if __name__ == "__main__":

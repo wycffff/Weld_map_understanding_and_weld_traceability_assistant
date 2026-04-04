@@ -188,7 +188,7 @@ Latest local batch summary:
 
 - `1.jpg` -> drawing `4-N1-101`, `5` BOM rows, `1` weld
 - `2.jpeg` -> drawing `C-52`, `1` BOM row, `11` welds
-- `3.png` -> drawing `N-30-P-22009-AA1`, `2` BOM rows, `0` welds
+- `3.png` -> drawing `N-30-P-22009-AA1`, `2` BOM rows, `17` numeric welds inferred from the welding list
 - `4.webp` -> low-resolution fallback, review-first
 
 This baseline is intentionally incomplete. The goal right now is reliable modular parsing with reviewable outputs, then continued hardening toward customer-grade accuracy across multiple drawing styles.

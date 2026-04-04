@@ -42,12 +42,12 @@ As of the latest local run:
 
 - `1.jpg`: drawing number is stable, weld `W01` is found, BOM rows are partially normalized but still review-heavy.
 - `2.jpeg`: drawing number `C-52` is found, weld boxes are found (`W01..W11`), parts list extraction has started but is not complete.
-- `3.png`: line id `N-30-P-22009-AA1` is found, right-side tables start producing rows, weld list parsing still needs a dedicated extractor.
+- `3.png`: line id `N-30-P-22009-AA1` is found, right-side tables start producing rows, and the welding list now yields `17` numeric weld IDs through review-first grid inference.
 - `4.webp`: OCR can classify the page style, but text is too small for reliable title/BOM extraction; this sample remains review-first.
 
 ## Next Hardening Targets
 
-1. Add dedicated `welding_list` extraction for welding map sheets.
+1. Replace review-first `welding_list` row-count inference with cell-level weld-list parsing.
 2. Expand `parts list` / `item code` header mapping for more BOM variants.
 3. Add evaluation output for multi-sample regression runs.
 4. Improve low-resolution fallback for stacked isometric sheets like `4.webp`.

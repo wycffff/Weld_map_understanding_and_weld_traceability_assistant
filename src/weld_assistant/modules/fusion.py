@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Iterable
 
 from weld_assistant.config import AppConfig
@@ -27,7 +28,7 @@ class FusionEngine:
         review_items: list[ReviewItem] = []
         drawing = self._extract_drawing(ocr, review_items)
         bom_items = self._extract_bom(ocr, drawing, review_items)
-        welds = self._extract_welds(ocr, vlm, review_items)
+        welds = self._extract_welds(layout, ocr, vlm, review_items)
 
         if not drawing.drawing_number:
             review_items.append(
@@ -120,7 +121,7 @@ class FusionEngine:
                 )
         return items
 
-    def _extract_welds(self, ocr: OCRResult, vlm: VLMResult | None, review_items: list[ReviewItem]) -> list[WeldItem]:
+    def _extract_welds(self, layout: LayoutPlan, ocr: OCRResult, vlm: VLMResult | None, review_items: list[ReviewItem]) -> list[WeldItem]:
         location_map = {
             task.output_json.get("weld_id", "").replace("-", "").replace(" ", "").upper(): task.output_json.get("location_description")
             for task in (vlm.tasks if vlm else [])
@@ -168,6 +169,36 @@ class FusionEngine:
                     correction_applied=token.correction_applied,
                 ),
             )
+
+        profile = str(layout.layout_log.get("document_profile", ""))
+        if profile == "welding_map_sheet":
+            inferred_ids, evidence = infer_numeric_weld_ids_from_weld_list(layout.rois)
+            if inferred_ids:
+                review_items.append(
+                    ReviewItem(
+                        item_type="numeric_weld_ids_inferred",
+                        field="weld_id",
+                        roi_id="weld_list",
+                        message="Numeric weld identifiers were inferred from the welding-list grid and require review.",
+                        evidence=evidence,
+                    )
+                )
+            for inferred_id in inferred_ids:
+                if inferred_id in welds:
+                    continue
+                welds[inferred_id] = WeldItem(
+                    weld_id=inferred_id,
+                    location_description=location_map.get(inferred_id.upper()),
+                    confidence=0.0,
+                    needs_review=True,
+                    provenance=WeldProvenance(
+                        ocr_token_bbox=None,
+                        roi_id="weld_list",
+                        ocr_confidence=None,
+                        vlm_used=inferred_id.upper() in location_map,
+                        correction_applied=False,
+                    ),
+                )
         return list(welds.values())
 
 
@@ -474,3 +505,61 @@ def normalize_bom_material(
     if value:
         return normalize_material_spec(value), normalize_material_spec(value) != value
     return None, False
+
+
+def infer_numeric_weld_ids_from_weld_list(rois) -> tuple[list[str], dict[str, int | str]]:
+    weld_list_roi = next((roi for roi in rois if roi.roi_id == "weld_list" and roi.image_path), None)
+    if not weld_list_roi or not weld_list_roi.image_path:
+        return [], {}
+
+    row_count = estimate_weld_list_row_count(Path(weld_list_roi.image_path))
+    if row_count <= 0:
+        return [], {}
+
+    inferred_ids = [str(index) for index in range(1, row_count + 1)]
+    return (
+        inferred_ids,
+        {
+            "strategy": "weld_list_grid_inference",
+            "row_count": row_count,
+            "roi_image_path": weld_list_roi.image_path,
+        },
+    )
+
+
+def estimate_weld_list_row_count(image_path: Path) -> int:
+    try:
+        import cv2  # type: ignore
+        import numpy as np
+    except ImportError:
+        return 0
+
+    image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        return 0
+
+    _, threshold = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    kernel_width = max(24, image.shape[1] // 10)
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_width, 1))
+    horizontal_lines = cv2.morphologyEx(threshold, cv2.MORPH_OPEN, horizontal_kernel)
+
+    row_sum = horizontal_lines.sum(axis=1) / 255
+    strong_rows = np.where(row_sum > image.shape[1] * 0.35)[0]
+    line_clusters = cluster_line_indices(strong_rows.tolist())
+    if len(line_clusters) < 4:
+        return 0
+
+    return max(0, len(line_clusters) - 2)
+
+
+def cluster_line_indices(indices: list[int], max_gap: int = 2) -> list[list[int]]:
+    if not indices:
+        return []
+
+    clusters: list[list[int]] = [[indices[0]]]
+    for value in indices[1:]:
+        if value - clusters[-1][-1] <= max_gap:
+            clusters[-1].append(value)
+        else:
+            clusters.append([value])
+    return clusters
