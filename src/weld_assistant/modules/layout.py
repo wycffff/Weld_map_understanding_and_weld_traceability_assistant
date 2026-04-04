@@ -26,7 +26,13 @@ class RegionPlanner:
     def _plan_manual(self, doc: PreprocessedDocument, ocr_preview: OCRResult | None = None) -> LayoutPlan:
         config_path = Path(self.config.layout.manual_roi_config)
         raw = json.loads(config_path.read_text(encoding="utf-8"))
-        templates = raw.get(doc.document_id) or raw.get("default") or []
+        templates = (
+            raw.get(doc.document_id)
+            or raw.get((doc.source_filename or "").lower())
+            or raw.get(doc.source_filename or "")
+            or raw.get("default")
+            or []
+        )
 
         base_image = Image.open(doc.versions["clean"])
         rois = [
@@ -151,4 +157,3 @@ class RegionPlanner:
             output_path = self.roi_dir / f"{doc.document_id}_{roi.roi_id}.png"
             cropped.save(output_path)
             roi.image_path = str(output_path)
-

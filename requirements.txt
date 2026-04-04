@@ -3,4 +3,6 @@ Pillow>=10.0
 numpy>=2.0
 pydantic>=2.9
 ollama>=0.4.0
-
+rapidocr_onnxruntime>=1.4.4
+streamlit>=1.56.0
+jsonschema>=4.26.0

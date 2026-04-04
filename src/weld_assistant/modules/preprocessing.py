@@ -40,16 +40,17 @@ class Preprocessor:
 
         return PreprocessedDocument(
             document_id=doc.document_id,
+            source_filename=doc.metadata.original_filename,
             versions={"clean": str(clean_path), "strong": str(strong_path)},
             preprocess_log=preprocess_log,
         )
 
     def _resize(self, image: Image.Image) -> Image.Image:
         max_width = self.config.preprocessing.max_width
-        if image.width <= max_width:
+        if image.width == max_width:
             return image
         ratio = max_width / image.width
-        return image.resize((max_width, int(image.height * ratio)))
+        return image.resize((max_width, max(1, int(image.height * ratio))), Image.Resampling.LANCZOS)
 
     @staticmethod
     def _make_clean(image: Image.Image) -> Image.Image:

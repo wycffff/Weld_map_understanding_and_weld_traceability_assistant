@@ -25,7 +25,7 @@ layout:
   weld_roi_overlap: 0.2
 
 ocr:
-  engine: "paddleocr"
+  engine: "rapidocr"
   lang: "en"
   use_gpu: false
   table_enabled: true
@@ -64,4 +64,3 @@ export:
 ui:
   max_upload_mb: 200
   show_roi_preview: true
-

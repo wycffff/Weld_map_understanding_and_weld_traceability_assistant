@@ -9,7 +9,7 @@ from weld_assistant.db.repository import SQLiteRepository
 from weld_assistant.modules.fusion import FusionEngine
 from weld_assistant.modules.ingestion import DocumentLoader
 from weld_assistant.modules.layout import RegionPlanner
-from weld_assistant.modules.ocr import BaseOCREngine, NullOCREngine, OCRDependencyError, build_ocr_engine
+from weld_assistant.modules.ocr import BaseOCREngine, NullOCREngine, OCRDependencyError, RapidOCREngine, build_ocr_engine
 from weld_assistant.modules.preprocessing import Preprocessor
 from weld_assistant.modules.vlm import VLMEngine
 from weld_assistant.services.exporter import FileExporter
@@ -31,6 +31,11 @@ class PipelineService:
         try:
             return build_ocr_engine(self.config)
         except OCRDependencyError:
+            if self.config.ocr.engine != "rapidocr":
+                try:
+                    return RapidOCREngine(self.config)
+                except OCRDependencyError:
+                    pass
             return NullOCREngine(self.config)
 
     def process_file(
@@ -51,11 +56,7 @@ class PipelineService:
         preview_layout = self.region_planner.plan(preprocessed, ocr_preview=None)
         ocr_result = ocr_engine.extract_layout(preprocessed, preview_layout)
 
-        layout_plan = (
-            self.region_planner.plan(preprocessed, ocr_preview=ocr_result)
-            if self.config.layout.mode == "auto"
-            else preview_layout
-        )
+        layout_plan = self.region_planner.plan(preprocessed, ocr_preview=ocr_result)
         ocr_result = ocr_engine.extract_layout(preprocessed, layout_plan)
 
         vlm_result = self.vlm.analyze_layout(layout_plan)

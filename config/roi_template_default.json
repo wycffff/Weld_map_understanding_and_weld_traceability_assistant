@@ -1,4 +1,42 @@
 {
+  "1.jpg": [
+    {
+      "roi_id": "titleblock",
+      "type": "roi_titleblock",
+      "bbox_ratio": [0.32, 0.16, 0.72, 0.31],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "bom",
+      "type": "roi_bom_table",
+      "bbox_ratio": [0.56, 0.54, 0.98, 0.89],
+      "overlap": 0.1,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "note",
+      "type": "roi_note",
+      "bbox_ratio": [0.28, 0.86, 0.96, 0.99],
+      "overlap": 0.0,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "iso",
+      "type": "roi_isometric",
+      "bbox_ratio": [0.02, 0.02, 0.98, 0.78],
+      "overlap": 0.05,
+      "source_image_version": "clean"
+    },
+    {
+      "roi_id": "weld_W01_seed",
+      "type": "roi_weld_label",
+      "bbox_ratio": [0.01, 0.28, 0.26, 0.40],
+      "overlap": 0.2,
+      "source_image_version": "clean",
+      "weld_hint": "W-01"
+    }
+  ],
   "default": [
     {
       "roi_id": "titleblock",
@@ -23,4 +61,3 @@
     }
   ]
 }
-

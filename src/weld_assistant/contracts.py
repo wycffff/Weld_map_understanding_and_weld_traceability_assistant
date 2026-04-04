@@ -29,6 +29,7 @@ class InputDocument(BaseModel):
 
 class PreprocessedDocument(BaseModel):
     document_id: str
+    source_filename: str | None = None
     versions: dict[str, str]
     preprocess_log: dict[str, Any]
 
@@ -207,4 +208,3 @@ class PhotoEvidence(BaseModel):
 
 def ensure_parent(path: str | Path) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-

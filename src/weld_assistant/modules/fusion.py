@@ -60,9 +60,9 @@ class FusionEngine:
         note_tokens = [token for token in ocr.tokens if token.roi_id.startswith("note")]
         all_text = [token.text for token in title_tokens + note_tokens]
 
-        drawing_number = first_match(all_text, r"\d+[-A-Z0-9\"]+\d")
-        pipe_size = first_match(all_text, r'\d+"')
-        material_spec = first_match(all_text, r"ASTM\s+[A-Z0-9 .-]+")
+        drawing_number = normalize_drawing_number(first_match(all_text, r"\d+[-A-Z0-9\"]+\d"))
+        pipe_size = normalize_pipe_size(all_text)
+        material_spec = normalize_material_spec(first_match(all_text, r"ASTM[A-Z0-9 .-]+") or first_match(all_text, r"ASTM\s+[A-Z0-9 .-]+"))
 
         for token in title_tokens:
             if token.confidence < 0.7:
@@ -198,17 +198,9 @@ def map_bom_table(cells) -> tuple[list[dict], dict[int, str]]:
     raw_cols: dict[int, str] = {}
 
     for col, (text, _) in headers.items():
-        upper = text.upper()
-        if any(keyword in upper for keyword in ("TAG", "ITEM", "NO")):
-            mapping[col] = "tag"
-        elif "DESC" in upper:
-            mapping[col] = "description"
-        elif "QTY" in upper or "QUANTITY" in upper:
-            mapping[col] = "qty"
-        elif "MAT" in upper:
-            mapping[col] = "material"
-        elif "UOM" in upper or "UNIT" in upper:
-            mapping[col] = "uom"
+        semantic = classify_bom_header(text)
+        if semantic:
+            mapping[col] = semantic
         else:
             raw_cols[col] = text
 
@@ -227,3 +219,55 @@ def map_bom_table(cells) -> tuple[list[dict], dict[int, str]]:
         if any(key in row_payload for key in ("tag", "description", "qty", "material", "uom")):
             result_rows.append(row_payload)
     return result_rows, raw_cols
+
+
+def normalize_drawing_number(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.upper().replace('"', "")
+    normalized = re.sub(r"(?<=\d)C(?=[A-Z])", "-", normalized)
+    normalized = re.sub(r"(?<=\d)(?=[A-Z])", "-", normalized, count=1)
+    normalized = re.sub(r"-{2,}", "-", normalized)
+    return normalized
+
+
+def normalize_pipe_size(values: list[str]) -> str | None:
+    for value in values:
+        upper = value.upper()
+        if "SCH" in upper:
+            match = re.search(r"(\d+)", upper)
+            if match:
+                return f'{match.group(1)}"'
+    for value in values:
+        match = re.search(r'(\d+)"', value)
+        if match:
+            return f'{match.group(1)}"'
+    return None
+
+
+def normalize_material_spec(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.upper()
+    normalized = normalized.replace("ASTMA", "ASTM A")
+    normalized = normalized.replace("AI", "A1")
+    normalized = normalized.replace("AI06", "A106")
+    normalized = normalized.replace("A106GR", "A106 GR")
+    normalized = normalized.replace("GRB", "GR B")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def classify_bom_header(text: str) -> str | None:
+    upper = re.sub(r"[^A-Z]", "", text.upper())
+    if upper in {"TAG", "TAO", "TAC", "TA6", "ITEM", "NO"} or upper.startswith("TA"):
+        return "tag"
+    if "DESC" in upper or upper.startswith("DES"):
+        return "description"
+    if upper in {"QTY", "GTY", "OTY", "QIY"} or upper.endswith("TY"):
+        return "qty"
+    if upper in {"MAT", "XAT", "HAT"} or upper.startswith(("MAT", "XAT", "HAT")):
+        return "material"
+    if upper in {"UOM", "UNIT"} or upper.startswith("UO"):
+        return "uom"
+    return None

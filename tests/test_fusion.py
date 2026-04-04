@@ -58,7 +58,7 @@ class FusionEngineTest(unittest.TestCase):
 
         structured = engine.merge(layout, ocr, vlm)
 
-        self.assertEqual(structured.drawing.drawing_number, '4"-N1-101')
+        self.assertEqual(structured.drawing.drawing_number, '4-N1-101')
         self.assertEqual(structured.welds[0].weld_id, "W01")
         self.assertEqual(structured.welds[0].location_description, "Left joint")
         self.assertEqual(structured.bom[0].tag, "P-101")
@@ -66,4 +66,3 @@ class FusionEngineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

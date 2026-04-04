@@ -59,17 +59,19 @@
 
 - 项目结构、配置系统、Pydantic 契约模型
 - 手工 ROI 模式和自动布局 fallback 入口
-- OCR 适配器接口与 `PaddleOCR` 接入点
+- OCR 适配器接口与多引擎接入点（当前默认 `RapidOCR`，保留 `PaddleOCR` 适配器）
 - 简化版 Fusion：drawing / BOM / weld 的基础融合与 `needs_review`
 - SQLite schema、导入仓储、导出服务
 - 焊口状态 / 检验 / 照片绑定服务骨架
 - CLI 和最简 Streamlit 界面
 - JSON Schema 生成与基础单元测试
 
-当前默认降级行为：
+当前默认 OCR 行为：
 
 - `vlm.enabled=false`
-- 若本机未安装 `PaddleOCR`，流水线会退到 `NullOCREngine`，保证系统骨架可运行但不会提取真实 OCR 结果
+- 默认 OCR 引擎是 `RapidOCR`，适合当前 Windows + Python 3.12 本地环境快速跑通
+- `PaddleOCR` 适配器仍保留，但在当前环境里可能受底层推理执行器兼容性影响
+- 若已配置的 OCR 引擎不可用，系统会优先退回 `RapidOCR`，最后才退到 `NullOCREngine`
 
 ## 仓库结构
 
@@ -112,10 +114,16 @@ UI 依赖：
 python -m pip install streamlit
 ```
 
-OCR 依赖：
+默认 OCR 依赖：
 
 ```powershell
-python -m pip install paddleocr
+python -m pip install rapidocr_onnxruntime
+```
+
+可选 `PaddleOCR` 依赖：
+
+```powershell
+python -m pip install paddleocr paddlepaddle
 ```
 
 ### 2. 生成 schema
@@ -148,7 +156,7 @@ streamlit run app.py
 
 - `layout.mode`: `manual | auto`
 - `layout.weld_id_pattern`: 焊口编号正则
-- `ocr.engine`: 当前默认 `paddleocr`
+- `ocr.engine`: 当前默认 `rapidocr`
 - `vlm.enabled`: 是否启用 VLM
 - `database.path`: SQLite 路径
 - `export.output_dir`: 导出目录
@@ -178,3 +186,7 @@ python -m unittest discover -s tests -v
 - 跑出第一版真实 `StructuredDrawing`
 - 用真实图纸推动 Phase 1 从“骨架可跑”进入“结果可用”
 
+补充说明：
+
+- 目前已经为 `1.jpg` 增加了专用手工 ROI 模板
+- 手工 ROI 模式现在会在第一次 OCR 预扫后自动补生成焊口 ROI
