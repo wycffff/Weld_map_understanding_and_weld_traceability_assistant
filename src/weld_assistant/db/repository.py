@@ -56,6 +56,8 @@ class SQLiteRepository:
                     ).fetchall()
                 ]
                 for previous_number in previous_numbers:
+                    connection.execute("DELETE FROM photo_evidence WHERE drawing_number = ?", (previous_number,))
+                    connection.execute("DELETE FROM weld_progress WHERE drawing_number = ?", (previous_number,))
                     connection.execute("DELETE FROM bom_item WHERE drawing_number = ?", (previous_number,))
                     connection.execute("DELETE FROM weld WHERE drawing_number = ?", (previous_number,))
                     connection.execute("DELETE FROM review_queue WHERE drawing_number = ?", (previous_number,))
@@ -186,12 +188,63 @@ class SQLiteRepository:
             ).fetchall()
             return list(rows)
 
+    def get_weld(self, drawing_number: str, weld_id: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute(
+                "SELECT * FROM weld WHERE drawing_number = ? AND weld_id = ?",
+                (drawing_number, weld_id),
+            ).fetchone()
+
     def list_bom_items(self, drawing_number: str) -> list[sqlite3.Row]:
         with self.connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM bom_item WHERE drawing_number = ? ORDER BY line_no",
                 (drawing_number,),
             ).fetchall()
+            return list(rows)
+
+    def list_weld_progress(self, drawing_number: str, weld_id: str | None = None) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            if weld_id:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM weld_progress
+                    WHERE drawing_number = ? AND weld_id = ?
+                    ORDER BY event_at DESC, event_id DESC
+                    """,
+                    (drawing_number, weld_id),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM weld_progress
+                    WHERE drawing_number = ?
+                    ORDER BY event_at DESC, event_id DESC
+                    """,
+                    (drawing_number,),
+                ).fetchall()
+            return list(rows)
+
+    def list_photo_evidence(self, drawing_number: str, weld_id: str | None = None) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            if weld_id:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM photo_evidence
+                    WHERE drawing_number = ? AND weld_id = ?
+                    ORDER BY linked_at DESC, photo_id DESC
+                    """,
+                    (drawing_number, weld_id),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM photo_evidence
+                    WHERE drawing_number = ?
+                    ORDER BY linked_at DESC, photo_id DESC
+                    """,
+                    (drawing_number,),
+                ).fetchall()
             return list(rows)
 
     def list_review_queue(self, drawing_number: str | None = None) -> list[sqlite3.Row]:

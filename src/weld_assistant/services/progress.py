@@ -16,19 +16,14 @@ class ProgressService:
 
     def update_status(self, drawing_number: str, weld_id: str, to_status: str, operator: str | None = None, note: str | None = None) -> WeldProgressEvent:
         with self.repository.connect() as connection:
-            weld = connection.execute(
-                "SELECT status FROM weld WHERE drawing_number = ? AND weld_id = ?",
-                (drawing_number, weld_id),
-            ).fetchone()
-            if not weld:
-                raise ValueError(f"Weld not found: {drawing_number}/{weld_id}")
+            weld = self._require_weld(connection, drawing_number, weld_id)
 
             from_status = weld["status"]
             connection.execute(
                 "UPDATE weld SET status = ? WHERE drawing_number = ? AND weld_id = ?",
                 (to_status, drawing_number, weld_id),
             )
-            event = WeldProgressEvent(
+            event = self._build_event(
                 event_id=f"ev_{uuid4().hex[:10]}",
                 drawing_number=drawing_number,
                 weld_id=weld_id,
@@ -36,44 +31,21 @@ class ProgressService:
                 from_status=from_status,
                 to_status=to_status,
                 operator=operator,
-                event_at=datetime.now().astimezone(),
                 note=note,
             )
-            connection.execute(
-                """
-                INSERT INTO weld_progress (
-                  event_id, drawing_number, weld_id, event_type, from_status, to_status, operator, event_at, note
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.event_id,
-                    event.drawing_number,
-                    event.weld_id,
-                    event.event_type,
-                    event.from_status,
-                    event.to_status,
-                    event.operator,
-                    event.event_at.isoformat(),
-                    event.note,
-                ),
-            )
+            self._insert_event(connection, event)
             return event
 
     def update_inspection(self, drawing_number: str, weld_id: str, inspection_status: str, operator: str | None = None, note: str | None = None) -> WeldProgressEvent:
         with self.repository.connect() as connection:
-            weld = connection.execute(
-                "SELECT inspection_status FROM weld WHERE drawing_number = ? AND weld_id = ?",
-                (drawing_number, weld_id),
-            ).fetchone()
-            if not weld:
-                raise ValueError(f"Weld not found: {drawing_number}/{weld_id}")
+            weld = self._require_weld(connection, drawing_number, weld_id)
 
             from_status = weld["inspection_status"]
             connection.execute(
                 "UPDATE weld SET inspection_status = ? WHERE drawing_number = ? AND weld_id = ?",
                 (inspection_status, drawing_number, weld_id),
             )
-            event = WeldProgressEvent(
+            event = self._build_event(
                 event_id=f"ev_{uuid4().hex[:10]}",
                 drawing_number=drawing_number,
                 weld_id=weld_id,
@@ -81,27 +53,9 @@ class ProgressService:
                 from_status=from_status,
                 to_status=inspection_status,
                 operator=operator,
-                event_at=datetime.now().astimezone(),
                 note=note,
             )
-            connection.execute(
-                """
-                INSERT INTO weld_progress (
-                  event_id, drawing_number, weld_id, event_type, from_status, to_status, operator, event_at, note
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.event_id,
-                    event.drawing_number,
-                    event.weld_id,
-                    event.event_type,
-                    event.from_status,
-                    event.to_status,
-                    event.operator,
-                    event.event_at.isoformat(),
-                    event.note,
-                ),
-            )
+            self._insert_event(connection, event)
             return event
 
     def link_photo(
@@ -129,6 +83,7 @@ class ProgressService:
             note=note,
         )
         with self.repository.connect() as connection:
+            self._require_weld(connection, drawing_number, weld_id)
             connection.execute(
                 """
                 INSERT INTO photo_evidence (
@@ -147,5 +102,71 @@ class ProgressService:
                     evidence.note,
                 ),
             )
+            self._insert_event(
+                connection,
+                self._build_event(
+                    event_id=f"ev_{uuid4().hex[:10]}",
+                    drawing_number=drawing_number,
+                    weld_id=weld_id,
+                    event_type="photo_linked",
+                    from_status=None,
+                    to_status=photo_id,
+                    operator=linked_by,
+                    note=note or f"Linked photo {photo_id}",
+                ),
+            )
         return evidence
 
+    @staticmethod
+    def _require_weld(connection: sqlite3.Connection, drawing_number: str, weld_id: str) -> sqlite3.Row:
+        weld = connection.execute(
+            "SELECT status, inspection_status FROM weld WHERE drawing_number = ? AND weld_id = ?",
+            (drawing_number, weld_id),
+        ).fetchone()
+        if not weld:
+            raise ValueError(f"Weld not found: {drawing_number}/{weld_id}")
+        return weld
+
+    @staticmethod
+    def _build_event(
+        event_id: str,
+        drawing_number: str,
+        weld_id: str,
+        event_type: str,
+        from_status: str | None,
+        to_status: str | None,
+        operator: str | None,
+        note: str | None,
+    ) -> WeldProgressEvent:
+        return WeldProgressEvent(
+            event_id=event_id,
+            drawing_number=drawing_number,
+            weld_id=weld_id,
+            event_type=event_type,
+            from_status=from_status,
+            to_status=to_status,
+            operator=operator,
+            event_at=datetime.now().astimezone(),
+            note=note,
+        )
+
+    @staticmethod
+    def _insert_event(connection: sqlite3.Connection, event: WeldProgressEvent) -> None:
+        connection.execute(
+            """
+            INSERT INTO weld_progress (
+              event_id, drawing_number, weld_id, event_type, from_status, to_status, operator, event_at, note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.event_id,
+                event.drawing_number,
+                event.weld_id,
+                event.event_type,
+                event.from_status,
+                event.to_status,
+                event.operator,
+                event.event_at.isoformat(),
+                event.note,
+            ),
+        )

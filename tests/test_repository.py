@@ -7,6 +7,7 @@ from uuid import uuid4
 from weld_assistant.config import AppConfig
 from weld_assistant.contracts import BOMItem, DrawingData, ProcessingLog, StructuredDrawing, WeldItem
 from weld_assistant.db.repository import SQLiteRepository
+from weld_assistant.services.progress import ProgressService
 
 
 class RepositoryTest(unittest.TestCase):
@@ -59,6 +60,7 @@ class RepositoryTest(unittest.TestCase):
         )
         repo = SQLiteRepository(config)
         repo.init_db()
+        progress = ProgressService(repo)
 
         original = StructuredDrawing(
             document_id="doc_test_same",
@@ -86,12 +88,16 @@ class RepositoryTest(unittest.TestCase):
         )
 
         repo.import_structured_drawing(original)
+        progress.update_status("OLD-001", "W01", "done", operator="tester")
+        progress.link_photo("OLD-001", "W01", b"fake-image", "w01.jpg", linked_by="tester")
         repo.import_structured_drawing(updated, overwrite=True)
 
         self.assertIsNone(repo.get_drawing("OLD-001"))
         self.assertIsNotNone(repo.get_drawing("NEW-001"))
         self.assertEqual([row["weld_id"] for row in repo.list_welds("NEW-001")], ["W02"])
         self.assertEqual([row["tag"] for row in repo.list_bom_items("NEW-001")], ["NEW"])
+        self.assertEqual(repo.list_weld_progress("OLD-001"), [])
+        self.assertEqual(repo.list_photo_evidence("OLD-001"), [])
 
     def test_search_drawings_matches_normalized_queries(self) -> None:
         temp_root = Path("data/test_runs")

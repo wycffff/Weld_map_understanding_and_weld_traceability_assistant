@@ -56,6 +56,7 @@ Implemented today:
 - OCR adapters with `RapidOCR` as the default local path and `PaddleOCR` retained as an optional adapter.
 - Fusion logic for drawing fields, weld identifiers, and partially normalized BOM extraction.
 - SQLite repository, review queue persistence, and export services.
+- Traceability actions for weld status, inspection status, photo evidence, and append-only event history.
 - Streamlit demo UI.
 - CLI support for single-file parsing, batch parsing, schema generation, DB initialization, and exports.
 - Real-sample regression coverage with four drawing styles.
@@ -68,6 +69,19 @@ Current document profiles:
 - `dual_isometric_sheet`
 
 See [docs/sample-profile-analysis.md](docs/sample-profile-analysis.md) for the current sample set and parsing baseline.
+
+## Module Status
+
+- `M1` Input / Ingestion: running
+- `M2` Preprocessing: running
+- `M3` Layout & ROI Planner: running with manual templates and profile-based selection; auto mode is still limited
+- `M4` OCR Extraction: running with `RapidOCR` by default
+- `M5` VLM Understanding: scaffolded and callable, but disabled by default in `config/config.yaml`
+- `M6` Fusion & Parsing: running with OCR-first / review-first rules
+- `M7` Traceability Data Model: running on SQLite
+- `M8` Progress & Photo Linking: running for status updates, inspection updates, photo uploads, and event logging
+- `M9` Export / Integration: running for JSON / CSV export
+- `M10` UI / Demo: running for upload, search, review, export, and traceability actions
 
 ## Repository Structure
 
@@ -149,10 +163,14 @@ The web UI supports:
 - Uploading and processing a new drawing.
 - Previewing generated ROIs.
 - Searching existing reports by drawing number, spool name, or document ID.
+- Updating weld status and inspection status.
+- Uploading weld photos and linking them to stored weld IDs.
+- Viewing append-only event history and linked photo evidence per weld.
 - Exporting JSON and CSV outputs from stored results.
 - Reviewing unresolved items from the review queue.
 
 Search is normalized so queries like `C52`, `c-52`, or partial drawing fragments can still return matches.
+VLM assistance is visible in the UI status banner and is currently disabled by default.
 
 ## CLI Commands
 

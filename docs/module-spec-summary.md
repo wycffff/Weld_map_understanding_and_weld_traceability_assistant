@@ -156,4 +156,14 @@ The current repository maps these concepts into:
 - UI: `src/weld_assistant/app.py`
 - CLI: `src/weld_assistant/cli.py`
 
+## 7. Current Implementation Status
+
+- `M1` to `M4`: running in the main pipeline.
+- `M5`: implemented as an optional Ollama-backed helper, but disabled by default in `config/config.yaml`.
+- `M6`: running with OCR-first fusion and review-first conflict handling.
+- `M7`: running with SQLite persistence for drawings, welds, BOM rows, and review items.
+- `M8`: now running for weld status updates, inspection updates, photo evidence uploads, and append-only event logging.
+- `M9`: running for JSON/CSV export, including stored traceability records.
+- `M10`: running as a Streamlit demo for upload, search, review, export, and weld traceability actions.
+
 This summary will evolve as implementation expands, but the OCR-first / review-first design rules above remain the stable baseline.

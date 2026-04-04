@@ -57,6 +57,8 @@ class RepositoryExporter:
             raise ValueError(f"Drawing not found: {drawing_number}")
         welds = self.repository.list_welds(drawing_number)
         bom_items = self.repository.list_bom_items(drawing_number)
+        progress_events = self.repository.list_weld_progress(drawing_number)
+        photo_evidence = self.repository.list_photo_evidence(drawing_number)
 
         json_path = self.output_dir / f"{drawing_number}.export.json"
         csv_path = self.output_dir / f"{drawing_number}.weld_progress.csv"
@@ -65,24 +67,54 @@ class RepositoryExporter:
             "drawing": dict(drawing),
             "welds": [dict(row) for row in welds],
             "bom": [dict(row) for row in bom_items],
+            "progress_events": [dict(row) for row in progress_events],
+            "photo_evidence": [dict(row) for row in photo_evidence],
         }
         json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
         buffer = io.StringIO()
         writer = csv.DictWriter(buffer, fieldnames=self.config.export.csv_fields)
         writer.writeheader()
+        latest_photos = latest_photo_by_weld(photo_evidence)
+        completion_events = latest_completion_event_by_weld(progress_events)
         for weld in welds:
+            completion_event = completion_events.get(weld["weld_id"])
+            photo = latest_photos.get(weld["weld_id"])
             writer.writerow(
                 {
                     "drawing_number": weld["drawing_number"],
                     "weld_id": weld["weld_id"],
                     "status": weld["status"],
-                    "completed_by": "",
-                    "completed_at": "",
+                    "completed_by": completion_event["operator"] if completion_event else "",
+                    "completed_at": completion_event["event_at"] if completion_event else "",
                     "inspection_status": weld["inspection_status"],
-                    "last_photo_id": "",
-                    "last_photo_path": "",
+                    "last_photo_id": photo["photo_id"] if photo else "",
+                    "last_photo_path": photo["file_path"] if photo else "",
                 }
             )
         csv_path.write_text(buffer.getvalue(), encoding="utf-8", newline="")
         return str(json_path), str(csv_path)
+
+
+def latest_photo_by_weld(photo_rows) -> dict[str, dict]:
+    latest: dict[str, dict] = {}
+    for row in photo_rows:
+        row_dict = dict(row)
+        existing = latest.get(row_dict["weld_id"])
+        if not existing or row_dict["linked_at"] > existing["linked_at"]:
+            latest[row_dict["weld_id"]] = row_dict
+    return latest
+
+
+def latest_completion_event_by_weld(progress_rows) -> dict[str, dict]:
+    latest: dict[str, dict] = {}
+    for row in progress_rows:
+        row_dict = dict(row)
+        if row_dict["event_type"] != "status_update":
+            continue
+        if row_dict["to_status"] not in {"done", "completed"}:
+            continue
+        existing = latest.get(row_dict["weld_id"])
+        if not existing or row_dict["event_at"] > existing["event_at"]:
+            latest[row_dict["weld_id"]] = row_dict
+    return latest
