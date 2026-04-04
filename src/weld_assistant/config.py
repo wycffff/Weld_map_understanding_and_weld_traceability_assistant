@@ -46,6 +46,7 @@ class VlmSection(BaseModel):
     mode: str = "review_only"
     max_tasks_per_document: int = 3
     max_output_tokens: int = 96
+    request_timeout_sec: int = 30
 
 
 class FusionSection(BaseModel):

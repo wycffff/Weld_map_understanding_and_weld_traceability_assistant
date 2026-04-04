@@ -56,6 +56,7 @@ Implemented today:
 - OCR adapters with `RapidOCR` as the default local path and `PaddleOCR` retained as an optional adapter.
 - Fusion logic for drawing fields, weld identifiers, and partially normalized BOM extraction.
 - Bounded M5 integration for title-block fallback, weld-list assistance, and weld-location descriptions.
+- Bounded M5 review-assistant flow for review queue explanation and action suggestions.
 - SQLite repository, review queue persistence, and export services.
 - Traceability actions for weld status, inspection status, photo evidence, and append-only event history.
 - Streamlit demo UI.
@@ -77,7 +78,7 @@ See [docs/sample-profile-analysis.md](docs/sample-profile-analysis.md) for the c
 - `M2` Preprocessing: running
 - `M3` Layout & ROI Planner: running with manual templates and profile-based selection; auto mode is still limited
 - `M4` OCR Extraction: running with `RapidOCR` by default
-- `M5` VLM Understanding: integrated as bounded assistance for title-block fallback, weld-list extraction, and weld-location descriptions; still disabled by default for full runs because the current local Ollama runtime is CPU-bound
+- `M5` VLM Understanding: integrated as bounded assistance for title-block fallback, weld-list extraction, weld-location descriptions, and review-queue guidance; still disabled by default for full runs because the current local Ollama runtime is CPU-bound
 - `M6` Fusion & Parsing: running with OCR-first / review-first rules
 - `M7` Traceability Data Model: running on SQLite
 - `M8` Progress & Photo Linking: running for status updates, inspection updates, photo uploads, and event logging
@@ -172,11 +173,13 @@ The web UI supports:
 - Viewing append-only event history and linked photo evidence per weld.
 - Exporting JSON and CSV outputs from stored results.
 - Reviewing unresolved items from the review queue and resolving or reopening them.
+- Running a bounded M5 review assistant on a selected review item.
 
 Search is normalized so queries like `C52`, `c-52`, or partial drawing fragments can still return matches.
 VLM assistance is visible in the UI status banner and can be enabled per run. On the current machine the local Ollama runtime is CPU-bound, so selective use is recommended.
 When a drawing has no stored weld rows yet, or when some welds are still missing after parsing, the UI exposes a manual weld-intake flow so users can bulk-register weld IDs, skip already-existing IDs, and then continue with photos and progress events.
 Weld identity is scoped by `drawing_number + weld_id`, so `W01` may exist on multiple drawings without conflict while remaining unique inside each drawing.
+The review assistant now uses a hard timeout for local Ollama calls so difficult requests fail fast instead of blocking the UI indefinitely.
 
 ## CLI Commands
 
@@ -201,6 +204,7 @@ Important fields:
 - `vlm.mode`: `review_only | always`
 - `vlm.max_tasks_per_document`: cap VLM task count per drawing
 - `vlm.max_output_tokens`: limit local Ollama output size per task
+- `vlm.request_timeout_sec`: hard timeout for each bounded Ollama call
 - `database.path`: SQLite database path
 - `export.output_dir`: export directory
 

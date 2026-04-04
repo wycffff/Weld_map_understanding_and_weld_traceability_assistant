@@ -9,6 +9,7 @@ from weld_assistant.db.repository import SQLiteRepository
 from weld_assistant.services.exporter import RepositoryExporter
 from weld_assistant.services.pipeline import PipelineService
 from weld_assistant.services.progress import ProgressService, normalize_manual_weld_id
+from weld_assistant.services.review import ReviewService
 
 
 def _require_streamlit():
@@ -27,6 +28,7 @@ def main() -> None:  # pragma: no cover
     repository.init_db()
     repo_exporter = RepositoryExporter(config, repository)
     progress_service = ProgressService(repository)
+    review_service = ReviewService(repository, pipeline.vlm)
 
     st.set_page_config(page_title="Weld Traceability Assistant", layout="wide")
     st.title("Weld Traceability Assistant")
@@ -104,7 +106,7 @@ def main() -> None:  # pragma: no cover
     if selected_drawing_number:
         render_traceability_workspace(st, repository, progress_service, selected_drawing_number)
 
-    render_review_queue_workspace(st, repository, progress_service, selected_drawing_number)
+    render_review_queue_workspace(st, repository, progress_service, review_service, selected_drawing_number)
 
 
 def format_drawing_option(drawing_number: str, matches) -> str:
@@ -303,7 +305,13 @@ def render_traceability_workspace(st, repository: SQLiteRepository, progress_ser
                 st.caption("No photos linked yet.")
 
 
-def render_review_queue_workspace(st, repository: SQLiteRepository, progress_service: ProgressService, drawing_number: str | None) -> None:
+def render_review_queue_workspace(
+    st,
+    repository: SQLiteRepository,
+    progress_service: ProgressService,
+    review_service: ReviewService,
+    drawing_number: str | None,
+) -> None:
     st.subheader("Review queue")
     unresolved_only = st.checkbox(
         "Show unresolved items only",
@@ -323,6 +331,7 @@ def render_review_queue_workspace(st, repository: SQLiteRepository, progress_ser
         key=f"review_select_{drawing_number or 'all'}",
     )
     selected_review = next(row for row in reviews if row["review_id"] == selected_review_id)
+    suggestion = review_service.suggest_review_item(selected_review_id, use_llm=False)
     payload = json.loads(selected_review["payload_json"])
 
     scope = selected_review["drawing_number"] or selected_review["document_id"]
@@ -331,10 +340,41 @@ def render_review_queue_workspace(st, repository: SQLiteRepository, progress_ser
     st.caption(f"Review scope: {scope}")
     st.json(payload)
 
+    heuristic = suggestion["heuristic"]
+    st.info(
+        f"Heuristic recommendation: {heuristic['recommended_action']} | "
+        f"confidence={heuristic['confidence']:.2f}\n\n{heuristic['summary']}"
+    )
+    if heuristic.get("notes"):
+        st.caption(heuristic["notes"])
+
     operator = st.text_input("Review operator", key=f"review_operator_{selected_review_id}")
     note = st.text_input("Review note", key=f"review_note_{selected_review_id}")
-    candidate_weld_ids = extract_review_candidate_weld_ids(selected_review, payload)
+    candidate_weld_ids = heuristic["candidate_weld_ids"]
     action_columns = st.columns(3)
+
+    if st.button("Run M5 review assistant", key=f"review_assist_{selected_review_id}"):
+        with st.spinner("Running bounded M5 review assist..."):
+            st.session_state[f"review_assist_result_{selected_review_id}"] = review_service.suggest_review_item(
+                selected_review_id,
+                use_llm=True,
+            )
+        st.rerun()
+
+    review_assist_result = st.session_state.get(f"review_assist_result_{selected_review_id}")
+    if review_assist_result and review_assist_result.get("llm"):
+        llm_result = review_assist_result["llm"]
+        if llm_result.get("error"):
+            st.warning(f"M5 review assist failed: {llm_result['error']}")
+        else:
+            st.success(
+                f"M5 recommendation: {llm_result['recommended_action']} | "
+                f"confidence={llm_result['confidence']:.2f} | "
+                f"latency={llm_result['latency_ms']}ms"
+            )
+            st.write(llm_result["summary"])
+            if llm_result.get("notes"):
+                st.caption(llm_result["notes"])
 
     if candidate_weld_ids and selected_review["drawing_number"]:
         with action_columns[0]:
@@ -392,26 +432,6 @@ def parse_manual_weld_ids(raw_value: str) -> list[str]:
         if normalized_value:
             normalized.append(normalized_value)
     return dedupe_preserve_order(normalized)
-
-
-def extract_review_candidate_weld_ids(review_row, payload: dict) -> list[str]:
-    candidates: list[str] = []
-    direct_values = [
-        review_row["weld_id"],
-        payload.get("ocr_value"),
-        payload.get("vlm_value"),
-    ]
-    for value in direct_values:
-        if not value:
-            continue
-        candidates.extend(parse_manual_weld_ids(str(value)))
-
-    evidence = payload.get("evidence") or {}
-    for value in evidence.get("vlm_weld_ids", []):
-        candidates.extend(parse_manual_weld_ids(str(value)))
-    for value in evidence.get("candidate_weld_ids", []):
-        candidates.extend(parse_manual_weld_ids(str(value)))
-    return dedupe_preserve_order(candidates)
 
 
 def summarize_review_row(row) -> dict[str, str | None]:
