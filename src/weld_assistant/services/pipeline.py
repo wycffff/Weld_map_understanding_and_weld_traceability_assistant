@@ -54,13 +54,16 @@ class PipelineService:
         preprocessed = self.preprocessor.process(input_doc)
 
         ocr_engine = self.build_ocr_engine()
-        preview_layout = self.region_planner.plan(preprocessed, ocr_preview=None)
+        preview_layout = self.region_planner.build_preview_plan(preprocessed)
         ocr_result = ocr_engine.extract_layout(preprocessed, preview_layout)
+        classification = self.region_planner.classify(ocr_result)
 
-        layout_plan = self.region_planner.plan(preprocessed, ocr_preview=ocr_result)
-        ocr_result = ocr_engine.extract_layout(preprocessed, layout_plan)
+        layout_plan = self.region_planner.plan(preprocessed, ocr_preview=ocr_result, classification=classification)
+        if layout_plan.rois:
+            ocr_result = ocr_engine.extract_layout(preprocessed, layout_plan)
 
-        vlm_result = self.vlm.analyze_layout(layout_plan, ocr_result=ocr_result, enabled=use_vlm)
+        vlm_enabled = use_vlm if layout_plan.supported else False
+        vlm_result = self.vlm.analyze_layout(layout_plan, ocr_result=ocr_result, enabled=vlm_enabled)
         structured = self.fusion.merge(layout_plan, ocr_result, vlm_result)
 
         final_dir = ensure_dir(Path(self.config.pipeline.data_root) / "final")

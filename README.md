@@ -8,6 +8,7 @@ The system is being built as a modular Python application with OCR-first extract
 
 - Ingest drawing files and assign stable `document_id` values.
 - Preprocess images into OCR-friendly variants.
+- Classify drawings before ROI planning so supported and unsupported formats take different paths.
 - Split drawings into semantic regions such as title blocks, BOM tables, isometric views, and weld labels.
 - Extract structured fields from OCR output.
 - Normalize and fuse drawing data, BOM items, and weld identifiers.
@@ -52,6 +53,7 @@ See [docs/module-spec-summary.md](docs/module-spec-summary.md) for the English i
 Implemented today:
 
 - Modular project structure and typed contracts.
+- OCR-driven drawing classification and support / reject routing before ROI planning.
 - Manual ROI flow with profile-based layout selection.
 - OCR adapters with `RapidOCR` as the default local path and `PaddleOCR` retained as an optional adapter.
 - Fusion logic for drawing fields, weld identifiers, and partially normalized BOM extraction.
@@ -63,6 +65,7 @@ Implemented today:
 - CLI support for single-file parsing, batch parsing, schema generation, DB initialization, exports, and sample evaluation against local ground truth.
 - Real-sample regression coverage with four drawing styles.
 - BOM semantic column alignment driven by header keywords, fuzzy header matching, and body-column fallback scoring.
+- Duplicate-sample handling so repeated local files do not collide during batch runs.
 
 Current document profiles:
 
@@ -77,17 +80,20 @@ The current machine-readable sample truth set lives in [eval/sample_ground_truth
 Latest evaluated sample metrics:
 
 - `drawing_number_accuracy = 1.0`
+- `drawing_type_accuracy = 1.0`
 - `weld_precision_micro = 1.0`
 - `weld_recall_micro = 1.0`
 - `bom_field_accuracy_micro = 1.0`
 
 The current field-level BOM truth coverage is focused on `samples/real/2.jpeg` (`C-52`), where the parser now recovers all 11 labeled BOM rows from the local truth set.
+`samples/real/6.jpeg` is tracked as a duplicate regression sample because it is byte-identical to `samples/real/2.jpeg`; it is excluded from aggregate metrics.
 
 ## Module Status
 
 - `M1` Input / Ingestion: running
 - `M2` Preprocessing: running
 - `M3` Layout & ROI Planner: running with manual templates and profile-based selection; auto mode is still limited
+- Drawing classification / routing: running for `simple_spool`, `fabrication_weld_map`, `pipeline_isometric`, and `dual_isometric`, with explicit reject / manual-intake guidance for unsupported or unknown drawings
 - `M4` OCR Extraction: running with `RapidOCR` by default
 - `M5` VLM Understanding: integrated as bounded assistance for title-block fallback, weld-list extraction, weld-location descriptions, and review-queue guidance; still disabled by default for full runs because the current local Ollama runtime is CPU-bound
 - `M6` Fusion & Parsing: running with OCR-first / review-first rules
@@ -121,6 +127,7 @@ The repository currently includes these real drawing samples:
 - [samples/real/2.jpeg](samples/real/2.jpeg)
 - [samples/real/3.png](samples/real/3.png)
 - [samples/real/4.webp](samples/real/4.webp)
+- [samples/real/6.jpeg](samples/real/6.jpeg)
 
 These samples are used as the current regression set for layout classification, OCR behavior, BOM extraction, weld extraction, and database import.
 
@@ -199,6 +206,7 @@ Weld identity is scoped by `drawing_number + weld_id`, so `W01` may exist on mul
 The review assistant now uses a hard timeout for local Ollama calls so difficult requests fail fast instead of blocking the UI indefinitely.
 The review-assistant timeout is separate from visual VLM tasks and can be raised in the UI up to 600 seconds for slow local CPU runs.
 Each drawing detail page now shows a small health summary with stored weld count, completed weld count, pending inspection count, and open review count.
+Unsupported or unknown drawing types now surface an explicit warning and manual-intake guidance instead of silently returning an empty parse.
 
 ## CLI Commands
 

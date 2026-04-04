@@ -26,6 +26,12 @@ class DocumentLoader:
             if item["sha256"] == file_hash:
                 duplicate_doc = InputDocument.model_validate(item)
                 duplicate_doc.metadata.duplicate_of = duplicate_doc.document_id
+                if meta.original_filename:
+                    duplicate_doc.metadata.original_filename = meta.original_filename
+                if meta.uploader:
+                    duplicate_doc.metadata.uploader = meta.uploader
+                if meta.project_id:
+                    duplicate_doc.metadata.project_id = meta.project_id
                 return duplicate_doc
 
         document_id = self._generate_document_id(index["items"])
@@ -56,4 +62,3 @@ class DocumentLoader:
 class PdfDocumentLoader(DocumentLoader):
     def load_many(self, file_bytes: bytes, metadata: dict | None = None) -> list[InputDocument]:
         raise NotImplementedError("PDF page splitting is reserved for a later phase.")
-

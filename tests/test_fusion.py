@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 
 from weld_assistant.config import AppConfig
 from weld_assistant.contracts import DrawingData, LayoutPlan, OCRResult, OCRTable, OCRTableCell, OCRToken, ROI, VLMResult, VLMTaskResult
-from weld_assistant.modules.fusion import FusionEngine, build_bom_item, map_bom_table
+from weld_assistant.modules.fusion import FusionEngine, build_bom_item, map_bom_table, map_weld_list_table
 
 
 class FusionEngineTest(unittest.TestCase):
@@ -347,6 +347,36 @@ class FusionEngineTest(unittest.TestCase):
         self.assertEqual(rows[0]["source_line_no"], "1")
         self.assertEqual(rows[1]["tag"], "504-C4")
         self.assertEqual(rows[1]["description"], "RING SUPPORT")
+        self.assertEqual(raw_cols, {})
+
+    def test_map_weld_list_table_uses_semantic_headers(self) -> None:
+        rows, raw_cols = map_weld_list_table(
+            [
+                OCRTableCell(row=0, col=0, text="WELDING LIST", confidence=0.99),
+                OCRTableCell(row=1, col=0, text="WELD NO", confidence=0.95),
+                OCRTableCell(row=1, col=1, text="SIZE", confidence=0.95),
+                OCRTableCell(row=1, col=2, text="TYPE", confidence=0.95),
+                OCRTableCell(row=1, col=3, text="WPSNO", confidence=0.95),
+                OCRTableCell(row=1, col=4, text="REMARKS", confidence=0.95),
+                OCRTableCell(row=2, col=0, text="1", confidence=0.91),
+                OCRTableCell(row=2, col=1, text='3/4"', confidence=0.91),
+                OCRTableCell(row=2, col=2, text="BW", confidence=0.91),
+                OCRTableCell(row=2, col=3, text="S10", confidence=0.91),
+                OCRTableCell(row=2, col=4, text="FIELD", confidence=0.91),
+                OCRTableCell(row=3, col=0, text="2", confidence=0.91),
+                OCRTableCell(row=3, col=1, text='1"', confidence=0.91),
+                OCRTableCell(row=3, col=2, text="FW", confidence=0.91),
+                OCRTableCell(row=3, col=3, text="S11", confidence=0.91),
+                OCRTableCell(row=3, col=4, text="SHOP", confidence=0.91),
+            ]
+        )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["weld_id"], "1")
+        self.assertEqual(rows[0]["pipe_size"], "3/4")
+        self.assertEqual(rows[0]["weld_type"], "BW")
+        self.assertEqual(rows[0]["wps_number"], "S10")
+        self.assertEqual(rows[0]["remarks"], "FIELD")
         self.assertEqual(raw_cols, {})
 
 

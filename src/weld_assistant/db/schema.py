@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS drawing (
   material_spec TEXT,
   revision TEXT,
   project_number TEXT,
+  drawing_type TEXT,
+  supported INTEGER NOT NULL DEFAULT 1,
+  classification_reason TEXT,
   imported_at TEXT NOT NULL,
   schema_version TEXT NOT NULL
 );
@@ -18,6 +21,10 @@ CREATE TABLE IF NOT EXISTS weld (
   drawing_number TEXT NOT NULL REFERENCES drawing(drawing_number),
   weld_id TEXT NOT NULL,
   location_description TEXT,
+  pipe_size TEXT,
+  weld_type TEXT,
+  wps_number TEXT,
+  remarks TEXT,
   status TEXT NOT NULL DEFAULT 'not_started',
   inspection_status TEXT NOT NULL DEFAULT 'not_checked',
   ocr_confidence REAL,
@@ -74,4 +81,3 @@ CREATE TABLE IF NOT EXISTS review_queue (
   resolved_at TEXT
 );
 """
-

@@ -76,6 +76,14 @@ def main() -> None:  # pragma: no cover
         with st.spinner("Processing drawing..."):
             structured = pipeline.process_file(temp_path, persist=persist, overwrite=True, use_vlm=use_vlm)
         st.success("Pipeline finished.")
+        if not structured.drawing.drawing_type_supported:
+            st.error(
+                f"Automatic parsing was rejected for drawing type `{structured.drawing.drawing_type}`. "
+                f"Reason: {structured.drawing.classification_reason or 'drawing_type_unknown'}. "
+                "Use manual intake if this drawing still needs traceability records."
+            )
+        elif structured.drawing.drawing_type == "unknown":
+            st.warning("The drawing type could not be classified confidently. Please verify the result before trusting auto-extracted data.")
         st.subheader("StructuredDrawing")
         st.json(structured.to_jsonable())
 
@@ -495,10 +503,18 @@ def render_drawing_health_summary(st, drawing_row, weld_rows, review_rows, photo
     metric_columns[2].metric("Pending inspection", pending_inspection)
     metric_columns[3].metric("Open review items", len(review_rows))
 
+    if drawing_row and drawing_row["drawing_type"]:
+        st.caption(f"Drawing type: {drawing_row['drawing_type']}")
     if drawing_row and drawing_row["drawing_number"] == drawing_row["document_id"]:
         st.warning(
             "This drawing is still using document_id as the drawing number fallback. "
             "Title-block recognition likely needs manual confirmation."
+        )
+    if drawing_row and not bool(drawing_row["supported"]):
+        st.error(
+            f"This drawing was rejected for automatic parsing as `{drawing_row['drawing_type'] or 'unknown'}`. "
+            f"Reason: {drawing_row['classification_reason'] or 'drawing_type_unknown'}. "
+            "Manual weld intake is recommended."
         )
     if len(weld_rows) == 0:
         st.warning(

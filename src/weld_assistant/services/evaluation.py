@@ -27,6 +27,15 @@ def evaluate_structured_drawing(
     weld_precision = round(len(tp) / len(predicted_set), 4) if predicted_set else 0.0
     weld_recall = round(len(tp) / len(truth_set), 4) if truth_set else 0.0
     drawing_number_match = structured.drawing.drawing_number == sample_truth.get("drawing_number")
+    drawing_type_match = structured.drawing.drawing_type == sample_truth.get("drawing_type")
+    expected_supported = bool(sample_truth.get("supported", True))
+    rejected_predicted = not structured.drawing.drawing_type_supported
+    rejected_expected = not expected_supported
+    expected_rejection_reason = sample_truth.get("rejection_reason")
+    rejected_correctly = (
+        (rejected_expected and rejected_predicted and structured.drawing.classification_reason == expected_rejection_reason)
+        or (not rejected_expected and not rejected_predicted)
+    )
     bom_report = evaluate_bom_items(structured, sample_truth)
 
     return {
@@ -34,6 +43,14 @@ def evaluate_structured_drawing(
         "drawing_number_ground_truth": sample_truth.get("drawing_number"),
         "drawing_number_predicted": structured.drawing.drawing_number,
         "drawing_number_match": drawing_number_match,
+        "drawing_type_ground_truth": sample_truth.get("drawing_type"),
+        "drawing_type_predicted": structured.drawing.drawing_type,
+        "drawing_type_match": drawing_type_match,
+        "supported_ground_truth": expected_supported,
+        "supported_predicted": structured.drawing.drawing_type_supported,
+        "rejection_reason_ground_truth": expected_rejection_reason,
+        "rejection_reason_predicted": structured.drawing.classification_reason,
+        "rejected_correctly": rejected_correctly,
         "weld_ids_ground_truth": truth_weld_ids,
         "weld_ids_predicted": predicted_weld_ids,
         "weld_true_positive_ids": tp,
@@ -64,28 +81,36 @@ def summarize_evaluation(sample_reports: list[dict[str, Any]]) -> dict[str, Any]
             "sample_count": len(sample_reports),
             "included_sample_count": 0,
             "drawing_number_accuracy": None,
+            "drawing_type_accuracy": None,
+            "rejected_correctly_accuracy": None,
             "weld_precision_micro": None,
             "weld_recall_micro": None,
         }
 
     drawing_matches = sum(1 for report in included if report["drawing_number_match"])
+    drawing_type_matches = sum(1 for report in included if report.get("drawing_type_match"))
     tp = sum(len(report["weld_true_positive_ids"]) for report in included)
     fp = sum(len(report["weld_false_positive_ids"]) for report in included)
     fn = sum(len(report["weld_false_negative_ids"]) for report in included)
     bom_reports = [report for report in included if report.get("bom_field_total", 0)]
     bom_field_matches = sum(int(report["bom_field_matches"]) for report in bom_reports)
     bom_field_total = sum(int(report["bom_field_total"]) for report in bom_reports)
+    rejected_reports = [report for report in included if report.get("supported_ground_truth") is False]
+    rejected_correct = sum(1 for report in rejected_reports if report.get("rejected_correctly"))
 
     return {
         "sample_count": len(sample_reports),
         "included_sample_count": len(included),
         "drawing_number_accuracy": round(drawing_matches / len(included), 4),
+        "drawing_type_accuracy": round(drawing_type_matches / len(included), 4),
+        "rejected_correctly_accuracy": round(rejected_correct / len(rejected_reports), 4) if rejected_reports else None,
         "weld_precision_micro": round(tp / (tp + fp), 4) if (tp + fp) else 0.0,
         "weld_recall_micro": round(tp / (tp + fn), 4) if (tp + fn) else 0.0,
         "bom_field_accuracy_micro": round(bom_field_matches / bom_field_total, 4) if bom_field_total else None,
         "limitations": [
             "This report covers only the curated local regression samples.",
             "BOM field accuracy is measured only for samples that already have a field-level BOM truth set.",
+            "Rejected-correctly accuracy is reported only for samples that explicitly expect rejection.",
             "Low-resolution samples can be excluded from metrics until a reliable human-labeled truth set is available.",
         ],
     }

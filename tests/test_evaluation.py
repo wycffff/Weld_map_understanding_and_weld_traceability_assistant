@@ -10,7 +10,7 @@ class EvaluationServiceTest(unittest.TestCase):
     def test_evaluate_structured_drawing_reports_weld_precision_and_recall(self) -> None:
         structured = StructuredDrawing(
             document_id="doc_eval_001",
-            drawing=DrawingData(drawing_number="DRAW-001"),
+            drawing=DrawingData(drawing_number="DRAW-001", drawing_type="simple_spool"),
             welds=[WeldItem(weld_id="W01"), WeldItem(weld_id="W02")],
             bom=[],
             processing_log=ProcessingLog(
@@ -18,6 +18,7 @@ class EvaluationServiceTest(unittest.TestCase):
                 processed_at="2026-04-04T10:00:00+03:00",
                 layout_confidence="high",
                 ocr_engine="test",
+                drawing_type="simple_spool",
             ),
         )
 
@@ -26,12 +27,16 @@ class EvaluationServiceTest(unittest.TestCase):
             structured=structured,
             sample_truth={
                 "drawing_number": "DRAW-001",
+                "drawing_type": "simple_spool",
+                "supported": True,
                 "weld_ids": ["W01", "W03"],
                 "bom_count": 1,
             },
         )
 
         self.assertTrue(report["drawing_number_match"])
+        self.assertTrue(report["drawing_type_match"])
+        self.assertTrue(report["rejected_correctly"])
         self.assertEqual(report["weld_true_positive_ids"], ["W01"])
         self.assertEqual(report["weld_false_positive_ids"], ["W02"])
         self.assertEqual(report["weld_false_negative_ids"], ["W03"])
@@ -41,7 +46,7 @@ class EvaluationServiceTest(unittest.TestCase):
     def test_evaluate_structured_drawing_reports_bom_field_accuracy(self) -> None:
         structured = StructuredDrawing(
             document_id="doc_eval_002",
-            drawing=DrawingData(drawing_number="DRAW-002"),
+            drawing=DrawingData(drawing_number="DRAW-002", drawing_type="fabrication_weld_map"),
             bom=[
                 BOMItem(line_no=1, tag="504-C1", description="Base Plate", qty="1"),
                 BOMItem(line_no=2, tag="504-C2", description="Gusset", qty="1"),
@@ -59,6 +64,8 @@ class EvaluationServiceTest(unittest.TestCase):
             structured=structured,
             sample_truth={
                 "drawing_number": "DRAW-002",
+                "drawing_type": "fabrication_weld_map",
+                "supported": True,
                 "weld_ids": [],
                 "bom_count": 2,
                 "bom_items": [
@@ -74,21 +81,64 @@ class EvaluationServiceTest(unittest.TestCase):
         self.assertEqual(report["bom_field_matches"], 5)
         self.assertEqual(report["bom_field_accuracy"], 0.8333)
 
+    def test_evaluate_structured_drawing_tracks_rejected_samples(self) -> None:
+        structured = StructuredDrawing(
+            document_id="doc_eval_003",
+            drawing=DrawingData(
+                drawing_number="doc_eval_003",
+                drawing_type="pressure_vessel",
+                drawing_type_supported=False,
+                classification_reason="drawing_type_not_supported",
+            ),
+            bom=[],
+            processing_log=ProcessingLog(
+                pipeline_version="0.1.0",
+                processed_at="2026-04-04T10:00:00+03:00",
+                layout_confidence="high",
+                ocr_engine="test",
+                drawing_type="pressure_vessel",
+                supported=False,
+                rejection_reason="drawing_type_not_supported",
+            ),
+        )
+
+        report = evaluate_structured_drawing(
+            input_file="samples/real/rejected.png",
+            structured=structured,
+            sample_truth={
+                "drawing_number": "doc_eval_003",
+                "drawing_type": "pressure_vessel",
+                "supported": False,
+                "rejection_reason": "drawing_type_not_supported",
+                "weld_ids": [],
+                "bom_count": 0,
+            },
+        )
+
+        self.assertTrue(report["drawing_type_match"])
+        self.assertTrue(report["rejected_correctly"])
+
     def test_summarize_evaluation_ignores_excluded_samples(self) -> None:
         summary = summarize_evaluation(
             [
                 {
                     "drawing_number_match": True,
+                    "drawing_type_match": True,
                     "weld_true_positive_ids": ["W01"],
                     "weld_false_positive_ids": [],
                     "weld_false_negative_ids": [],
+                    "supported_ground_truth": True,
+                    "rejected_correctly": True,
                     "excluded_from_metrics": False,
                 },
                 {
                     "drawing_number_match": False,
+                    "drawing_type_match": False,
                     "weld_true_positive_ids": [],
                     "weld_false_positive_ids": ["W99"],
                     "weld_false_negative_ids": ["W01"],
+                    "supported_ground_truth": False,
+                    "rejected_correctly": True,
                     "excluded_from_metrics": True,
                 },
             ]
@@ -96,6 +146,7 @@ class EvaluationServiceTest(unittest.TestCase):
 
         self.assertEqual(summary["included_sample_count"], 1)
         self.assertEqual(summary["drawing_number_accuracy"], 1.0)
+        self.assertEqual(summary["drawing_type_accuracy"], 1.0)
         self.assertEqual(summary["weld_precision_micro"], 1.0)
         self.assertEqual(summary["weld_recall_micro"], 1.0)
 

@@ -36,6 +36,13 @@ class SQLiteRepository:
     def init_db(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA_SQL)
+            self._ensure_column(connection, "drawing", "drawing_type", "TEXT")
+            self._ensure_column(connection, "drawing", "supported", "INTEGER NOT NULL DEFAULT 1")
+            self._ensure_column(connection, "drawing", "classification_reason", "TEXT")
+            self._ensure_column(connection, "weld", "pipe_size", "TEXT")
+            self._ensure_column(connection, "weld", "weld_type", "TEXT")
+            self._ensure_column(connection, "weld", "wps_number", "TEXT")
+            self._ensure_column(connection, "weld", "remarks", "TEXT")
 
     def import_structured_drawing(self, drawing: StructuredDrawing, overwrite: bool = False) -> None:
         drawing_number = drawing.drawing.drawing_number or drawing.document_id
@@ -67,8 +74,8 @@ class SQLiteRepository:
                 """
                 INSERT INTO drawing (
                   drawing_number, document_id, spool_name, pipe_size, material_spec,
-                  revision, project_number, imported_at, schema_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  revision, project_number, drawing_type, supported, classification_reason, imported_at, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     drawing_number,
@@ -78,6 +85,9 @@ class SQLiteRepository:
                     drawing.drawing.material_spec,
                     drawing.drawing.revision,
                     drawing.drawing.project_number,
+                    drawing.drawing.drawing_type,
+                    int(drawing.drawing.drawing_type_supported),
+                    drawing.drawing.classification_reason,
                     datetime.now().astimezone().isoformat(),
                     drawing.schema_version,
                 ),
@@ -107,14 +117,18 @@ class SQLiteRepository:
                 connection.execute(
                     """
                     INSERT INTO weld (
-                      drawing_number, weld_id, location_description, status,
-                      inspection_status, ocr_confidence, needs_review, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                      drawing_number, weld_id, location_description, pipe_size, weld_type,
+                      wps_number, remarks, status, inspection_status, ocr_confidence, needs_review, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         drawing_number,
                         weld.weld_id,
                         weld.location_description,
+                        weld.pipe_size,
+                        weld.weld_type,
+                        weld.wps_number,
+                        weld.remarks,
                         weld.status,
                         weld.inspection_status,
                         weld.confidence,
@@ -327,6 +341,16 @@ class SQLiteRepository:
                 score = max(score, 75 if field == "drawing_number" else 65)
 
         return score
+
+    @staticmethod
+    def _ensure_column(connection: sqlite3.Connection, table_name: str, column_name: str, column_spec: str) -> None:
+        columns = {
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+        }
+        if column_name in columns:
+            return
+        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_spec}")
 
 
 def normalize_lookup_key(value: str | None) -> str:

@@ -47,7 +47,19 @@ class ROI(BaseModel):
 class LayoutPlan(BaseModel):
     document_id: str
     rois: list[ROI]
+    drawing_type: str = "unknown"
+    supported: bool = True
+    rejection_reason: str | None = None
     layout_log: dict[str, Any] = Field(default_factory=dict)
+
+
+class DrawingClassification(BaseModel):
+    drawing_type: str
+    document_profile: str
+    supported: bool = True
+    rejection_reason: str | None = None
+    matched_signals: list[str] = Field(default_factory=list)
+    classification_method: str = "ocr_keyword_scan"
 
 
 class OCRToken(BaseModel):
@@ -114,6 +126,9 @@ class DrawingData(BaseModel):
     material_spec: str | None = None
     revision: str | None = None
     project_number: str | None = None
+    drawing_type: str | None = None
+    drawing_type_supported: bool = True
+    classification_reason: str | None = None
 
 
 class BOMItem(BaseModel):
@@ -139,6 +154,10 @@ class WeldProvenance(BaseModel):
 class WeldItem(BaseModel):
     weld_id: str
     location_description: str | None = None
+    pipe_size: str | None = None
+    weld_type: str | None = None
+    wps_number: str | None = None
+    remarks: str | None = None
     status: str = "not_started"
     inspection_status: str = "not_checked"
     confidence: float = 0.0
@@ -152,6 +171,9 @@ class ProcessingLog(BaseModel):
     layout_confidence: str = "unknown"
     ocr_engine: str
     vlm_model: str | None = None
+    drawing_type: str | None = None
+    supported: bool = True
+    rejection_reason: str | None = None
 
 
 class StructuredDrawing(BaseModel):

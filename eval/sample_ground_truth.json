@@ -3,6 +3,8 @@
     {
       "input_file": "samples/real/1.jpg",
       "drawing_number": "4-N1-101",
+      "drawing_type": "simple_spool",
+      "supported": true,
       "weld_ids": ["W01"],
       "bom_count": 4,
       "notes": "Ground truth weld list is W01 only. F-9-4 is a valve/material tag, not a weld identifier."
@@ -10,6 +12,8 @@
     {
       "input_file": "samples/real/2.jpeg",
       "drawing_number": "C-52",
+      "drawing_type": "fabrication_weld_map",
+      "supported": true,
       "weld_ids": ["W01", "W02", "W03", "W04", "W05", "W06", "W07", "W08", "W09", "W10", "W11"],
       "bom_count": 11,
       "bom_items": [
@@ -30,6 +34,8 @@
     {
       "input_file": "samples/real/3.png",
       "drawing_number": "N-30-P-22009-AA1",
+      "drawing_type": "pipeline_isometric",
+      "supported": true,
       "weld_ids": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"],
       "bom_count": 3,
       "notes": "This sample currently uses numeric weld identifiers from the welding list. Matching the count is not enough long-term; cell-level parsing is still required."
@@ -37,10 +43,22 @@
     {
       "input_file": "samples/real/4.webp",
       "drawing_number": null,
+      "drawing_type": "dual_isometric",
+      "supported": true,
       "weld_ids": [],
       "bom_count": 0,
       "exclude_from_metrics": true,
       "notes": "This low-resolution dual-isometric sample is excluded from quantitative metrics until a higher-quality source or a verified human truth set is available."
+    },
+    {
+      "input_file": "samples/real/6.jpeg",
+      "drawing_number": "C-52",
+      "drawing_type": "fabrication_weld_map",
+      "supported": true,
+      "weld_ids": ["W01", "W02", "W03", "W04", "W05", "W06", "W07", "W08", "W09", "W10", "W11"],
+      "bom_count": 11,
+      "exclude_from_metrics": true,
+      "notes": "This file is byte-identical to samples/real/2.jpeg, so it is tracked as a duplicate sample and excluded from aggregate metrics."
     }
   ]
 }

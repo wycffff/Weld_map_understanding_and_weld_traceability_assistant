@@ -310,14 +310,18 @@ class ProgressService:
         connection.execute(
             """
             INSERT INTO weld (
-              drawing_number, weld_id, location_description, status,
-              inspection_status, ocr_confidence, needs_review, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              drawing_number, weld_id, location_description, pipe_size, weld_type,
+              wps_number, remarks, status, inspection_status, ocr_confidence, needs_review, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 drawing_number,
                 weld_id,
                 location_description,
+                None,
+                None,
+                None,
+                None,
                 status,
                 inspection_status,
                 None,

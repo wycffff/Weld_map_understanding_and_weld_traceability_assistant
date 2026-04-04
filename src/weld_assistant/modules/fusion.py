@@ -28,6 +28,46 @@ class FusionEngine:
     def merge(self, layout: LayoutPlan, ocr: OCRResult, vlm: VLMResult | None = None) -> StructuredDrawing:
         review_items: list[ReviewItem] = []
         drawing = self._extract_drawing(ocr, vlm, review_items)
+        drawing.drawing_type = layout.drawing_type
+        drawing.drawing_type_supported = layout.supported
+        drawing.classification_reason = layout.rejection_reason
+
+        if not layout.supported:
+            rejection_reason = layout.rejection_reason or "drawing_type_not_supported"
+            review_items.append(
+                ReviewItem(
+                    item_type="drawing_rejected",
+                    field="drawing_type",
+                    message=build_rejection_message(layout.drawing_type, rejection_reason),
+                    evidence={
+                        "drawing_type": layout.drawing_type,
+                        "rejection_reason": rejection_reason,
+                        "matched_signals": layout.layout_log.get("matched_signals", []),
+                        "manual_intake_recommended": True,
+                    },
+                )
+            )
+            if not drawing.drawing_number:
+                drawing.drawing_number = layout.document_id
+            return StructuredDrawing(
+                document_id=layout.document_id,
+                schema_version=self.config.fusion.schema_version,
+                drawing=drawing,
+                bom=[],
+                welds=[],
+                needs_review_items=review_items,
+                processing_log=ProcessingLog(
+                    pipeline_version=self.config.pipeline.version,
+                    processed_at=datetime.now().astimezone(),
+                    layout_confidence=str(layout.layout_log.get("layout_confidence", "unknown")),
+                    ocr_engine=ocr.engine,
+                    vlm_model=None,
+                    drawing_type=layout.drawing_type,
+                    supported=False,
+                    rejection_reason=rejection_reason,
+                ),
+            )
+
         bom_items = self._extract_bom(ocr, drawing, review_items)
         welds = self._extract_welds(layout, ocr, vlm, review_items)
 
@@ -54,6 +94,9 @@ class FusionEngine:
                 layout_confidence=str(layout.layout_log.get("layout_confidence", "unknown")),
                 ocr_engine=ocr.engine,
                 vlm_model=vlm.model if vlm and vlm.tasks else None,
+                drawing_type=layout.drawing_type,
+                supported=layout.supported,
+                rejection_reason=layout.rejection_reason,
             ),
         )
 
@@ -131,6 +174,8 @@ class FusionEngine:
     def _extract_bom(self, ocr: OCRResult, drawing: DrawingData, review_items: list[ReviewItem]) -> list[BOMItem]:
         items: list[BOMItem] = []
         for table in ocr.tables:
+            if table.roi_id == "weld_list":
+                continue
             mapped_rows, raw_cols = map_bom_table(table.cells)
             table_items: list[BOMItem] = []
             for row_index, row in enumerate(mapped_rows, start=1):
@@ -220,35 +265,84 @@ class FusionEngine:
                 ),
             )
 
-        profile = str(layout.layout_log.get("document_profile", ""))
-        if profile == "welding_map_sheet":
-            inferred_ids, evidence = infer_numeric_weld_ids_from_weld_list(layout.rois)
-            if inferred_ids:
-                review_items.append(
-                    ReviewItem(
-                        item_type="numeric_weld_ids_inferred",
-                        field="weld_id",
-                        roi_id="weld_list",
-                        message="Numeric weld identifiers were inferred from the welding-list grid and require review.",
-                        evidence={**evidence, "candidate_weld_ids": inferred_ids},
+        is_pipeline_isometric = (
+            layout.drawing_type == "pipeline_isometric"
+            or str(layout.layout_log.get("document_profile", "")) == "welding_map_sheet"
+        )
+        if is_pipeline_isometric:
+            parsed_rows, raw_columns = extract_weld_list_rows(ocr)
+            if parsed_rows:
+                for row in parsed_rows:
+                    weld_id = normalize_weld_id_or_numeric(row.get("weld_id"))
+                    if not weld_id or weld_id in welds:
+                        continue
+                    row_issues = collect_weld_list_issues(row)
+                    welds[weld_id] = WeldItem(
+                        weld_id=weld_id,
+                        location_description=location_map.get(weld_id.upper()),
+                        pipe_size=stringify_cell(row.get("pipe_size")),
+                        weld_type=stringify_cell(row.get("weld_type")),
+                        wps_number=stringify_cell(row.get("wps_number")),
+                        remarks=stringify_cell(row.get("remarks")),
+                        confidence=float(row.get("confidence", 0.0)),
+                        needs_review=bool(row_issues),
+                        provenance=WeldProvenance(
+                            ocr_token_bbox=None,
+                            roi_id="weld_list",
+                            ocr_confidence=float(row.get("confidence", 0.0)),
+                            vlm_used=weld_id.upper() in location_map,
+                            correction_applied=False,
+                        ),
                     )
-                )
-            for inferred_id in inferred_ids:
-                if inferred_id in welds:
-                    continue
-                welds[inferred_id] = WeldItem(
-                    weld_id=inferred_id,
-                    location_description=location_map.get(inferred_id.upper()),
-                    confidence=0.0,
-                    needs_review=True,
-                    provenance=WeldProvenance(
-                        ocr_token_bbox=None,
-                        roi_id="weld_list",
-                        ocr_confidence=None,
-                        vlm_used=inferred_id.upper() in location_map,
-                        correction_applied=False,
-                    ),
-                )
+                    if row_issues:
+                        review_items.append(
+                            ReviewItem(
+                                item_type="weld_list_row_needs_review",
+                                field="weld_id",
+                                roi_id="weld_list",
+                                ocr_value=weld_id,
+                                message=f"WELDING LIST row for {weld_id} needs review: {', '.join(row_issues)}",
+                                evidence={"row": row, "issues": row_issues},
+                            )
+                        )
+                if raw_columns:
+                    review_items.append(
+                        ReviewItem(
+                            item_type="weld_list_column_mismatch",
+                            field="weld_id",
+                            roi_id="weld_list",
+                            message="WELDING LIST columns could not be fully mapped to expected semantics.",
+                            evidence={"raw_columns": raw_columns},
+                        )
+                    )
+            else:
+                inferred_ids, evidence = infer_numeric_weld_ids_from_weld_list(layout.rois)
+                if inferred_ids:
+                    review_items.append(
+                        ReviewItem(
+                            item_type="numeric_weld_ids_inferred",
+                            field="weld_id",
+                            roi_id="weld_list",
+                            message="Numeric weld identifiers were inferred from the welding-list grid and require review.",
+                            evidence={**evidence, "candidate_weld_ids": inferred_ids},
+                        )
+                    )
+                for inferred_id in inferred_ids:
+                    if inferred_id in welds:
+                        continue
+                    welds[inferred_id] = WeldItem(
+                        weld_id=inferred_id,
+                        location_description=location_map.get(inferred_id.upper()),
+                        confidence=0.0,
+                        needs_review=True,
+                        provenance=WeldProvenance(
+                            ocr_token_bbox=None,
+                            roi_id="weld_list",
+                            ocr_confidence=None,
+                            vlm_used=inferred_id.upper() in location_map,
+                            correction_applied=False,
+                        ),
+                    )
 
         added_by_vlm: list[str] = []
         for vlm_id in vlm_weld_ids:
@@ -354,14 +448,24 @@ def dedupe_preserve_order(values: list[str]) -> list[str]:
     return result
 
 
+def build_rejection_message(drawing_type: str, rejection_reason: str) -> str:
+    if rejection_reason == "drawing_type_not_supported":
+        return f"Drawing type `{drawing_type}` is not supported by the current parsing pipeline. Please use manual intake."
+    return "The drawing could not be confidently classified. Please review the image and use manual intake if needed."
+
+
+def group_table_cells(cells) -> dict[int, dict[int, list[tuple[str, float]]]]:
+    rows: dict[int, dict[int, list[tuple[str, float]]]] = {}
+    for cell in cells:
+        rows.setdefault(cell.row, {}).setdefault(cell.col, []).append((cell.text, cell.confidence))
+    return rows
+
+
 def map_bom_table(cells) -> tuple[list[dict], dict[int, str]]:
     if not cells:
         return [], {}
 
-    rows: dict[int, dict[int, list[tuple[str, float]]]] = {}
-    for cell in cells:
-        rows.setdefault(cell.row, {}).setdefault(cell.col, []).append((cell.text, cell.confidence))
-
+    rows = group_table_cells(cells)
     header_row_index = choose_bom_header_row(rows)
     headers = rows.pop(header_row_index)
     mapping: dict[int, str] = {}
@@ -406,6 +510,70 @@ def map_bom_table(cells) -> tuple[list[dict], dict[int, str]]:
                 row_payload[f"raw_col_{col}"] = text
         row_payload["confidence"] = sum(confidences) / len(confidences) if confidences else 0.0
         if any(key in row_payload for key in ("tag", "description", "qty", "material", "uom")):
+            result_rows.append(row_payload)
+    return result_rows, raw_cols
+
+
+def extract_weld_list_rows(ocr: OCRResult) -> tuple[list[dict], dict[int, str]]:
+    for table in ocr.tables:
+        if table.roi_id != "weld_list":
+            continue
+        return map_weld_list_table(table.cells)
+    return [], {}
+
+
+def map_weld_list_table(cells) -> tuple[list[dict], dict[int, str]]:
+    if not cells:
+        return [], {}
+
+    rows = group_table_cells(cells)
+    header_row_index = choose_weld_list_header_row(rows)
+    headers = rows.pop(header_row_index)
+    mapping: dict[int, str] = {}
+    raw_cols: dict[int, str] = {}
+
+    for col, values in headers.items():
+        text = " ".join(part for part, _ in values)
+        semantic = classify_weld_list_header(text)
+        if semantic:
+            mapping[col] = semantic
+        else:
+            raw_cols[col] = text
+
+    inferred = infer_missing_weld_list_mappings(rows, mapping)
+    mapping.update(inferred)
+    for col in list(raw_cols):
+        if col in mapping:
+            raw_cols.pop(col, None)
+
+    result_rows: list[dict] = []
+    for row_number, row in sorted(rows.items()):
+        if row_number <= header_row_index:
+            continue
+        row_payload: dict[str, str | float | None] = {"confidence": 0.0}
+        confidences: list[float] = []
+        for col, values in row.items():
+            text = " ".join(part for part, _ in values)
+            confidence = sum(score for _, score in values) / len(values)
+            confidences.append(confidence)
+            semantic = mapping.get(col)
+            if semantic:
+                row_payload[semantic] = text
+            else:
+                row_payload[f"raw_col_{col}"] = text
+        row_payload["confidence"] = sum(confidences) / len(confidences) if confidences else 0.0
+        normalized_weld_id = normalize_weld_id_or_numeric(row_payload.get("weld_id"))
+        if normalized_weld_id:
+            row_payload["weld_id"] = normalized_weld_id
+        pipe_size = normalize_weld_list_pipe_size(stringify_cell(row_payload.get("pipe_size")))
+        if pipe_size:
+            row_payload["pipe_size"] = pipe_size
+        row_payload["weld_type"] = normalize_weld_list_value(stringify_cell(row_payload.get("weld_type")))
+        row_payload["wps_number"] = normalize_weld_list_value(stringify_cell(row_payload.get("wps_number")))
+        row_payload["remarks"] = normalize_weld_list_value(stringify_cell(row_payload.get("remarks")))
+        if row_payload.get("weld_id") or any(
+            row_payload.get(field) for field in ("pipe_size", "weld_type", "wps_number", "remarks")
+        ):
             result_rows.append(row_payload)
     return result_rows, raw_cols
 
@@ -529,6 +697,15 @@ BOM_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+WELD_LIST_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
+    "weld_id": ("WELDNO", "WELDNUMBER", "WELDID", "NO"),
+    "pipe_size": ("SIZE", "NPS", "DIA"),
+    "weld_type": ("TYPE", "JOINTTYPE"),
+    "wps_number": ("WPSNO", "WPS", "WPSNUMBER", "PROC"),
+    "remarks": ("REMARKS", "REMARK", "NOTE"),
+}
+
+
 def normalize_header_text(text: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", text.upper())
 
@@ -540,6 +717,39 @@ def header_similarity(left: str, right: str) -> float:
     if left in right or right in left:
         ratio = max(ratio, min(len(left), len(right)) / max(len(left), len(right)))
     return ratio
+
+
+def classify_weld_list_header(text: str) -> str | None:
+    normalized = normalize_header_text(text)
+    if not normalized or normalized in {
+        "WELDINGLIST",
+        "PROJECTNAME",
+        "LINEID",
+        "WELDEDNOTES",
+    }:
+        return None
+
+    best_semantic = None
+    best_score = 0.0
+    for semantic, aliases in WELD_LIST_HEADER_ALIASES.items():
+        for alias in aliases:
+            score = header_similarity(normalized, alias)
+            if score > best_score:
+                best_semantic = semantic
+                best_score = score
+    if best_score >= 0.62:
+        return best_semantic
+    return None
+
+
+def choose_weld_list_header_row(rows: dict[int, dict[int, list[tuple[str, float]]]]) -> int:
+    def score(row: dict[int, list[tuple[str, float]]]) -> tuple[int, int]:
+        values = [" ".join(text for text, _ in entries) for entries in row.values()]
+        header_hits = sum(1 for text in values if classify_weld_list_header(text))
+        title_hits = sum(1 for text in values if normalize_header_text(text) == "WELDINGLIST")
+        return header_hits, -title_hits
+
+    return max(rows.items(), key=lambda item: score(item[1]))[0]
 
 
 def infer_missing_bom_mappings(
@@ -646,6 +856,110 @@ def bom_column_semantic_score(field: str, values: list[str]) -> float:
         return (sum(description_scores) / len(description_scores)) * coverage
 
     return 0.0
+
+
+def infer_missing_weld_list_mappings(
+    rows: dict[int, dict[int, list[tuple[str, float]]]],
+    mapping: dict[int, str],
+) -> dict[int, str]:
+    inferred: dict[int, str] = {}
+    assigned_columns = set(mapping)
+    available_columns = sorted({col for row in rows.values() for col in row} - assigned_columns)
+    column_values = {
+        col: [" ".join(part for part, _ in rows[row_index][col]) for row_index in sorted(rows) if col in rows[row_index]]
+        for col in available_columns
+    }
+    minimum_scores = {
+        "weld_id": 0.45,
+        "pipe_size": 0.40,
+        "weld_type": 0.40,
+        "wps_number": 0.38,
+        "remarks": 0.42,
+    }
+
+    wanted_fields = [
+        field for field in ("weld_id", "pipe_size", "weld_type", "wps_number", "remarks")
+        if field not in mapping.values()
+    ]
+    for field in wanted_fields:
+        best_column = None
+        best_score = 0.0
+        for col in available_columns:
+            if col in inferred:
+                continue
+            score = weld_list_column_semantic_score(field, column_values.get(col, []))
+            if score > best_score:
+                best_column = col
+                best_score = score
+        if best_column is not None and best_score >= minimum_scores[field]:
+            inferred[best_column] = field
+    return inferred
+
+
+def weld_list_column_semantic_score(field: str, values: list[str]) -> float:
+    cleaned = [value.strip() for value in values if value and value.strip()]
+    if not cleaned:
+        return 0.0
+    coverage = min(1.0, len(cleaned) / 5.0)
+
+    if field == "weld_id":
+        hits = sum(1 for value in cleaned if normalize_weld_id_or_numeric(value))
+        return (hits / len(cleaned)) * coverage
+    if field == "pipe_size":
+        hits = sum(1 for value in cleaned if normalize_weld_list_pipe_size(value))
+        return (hits / len(cleaned)) * coverage
+    if field == "weld_type":
+        hits = sum(1 for value in cleaned if looks_like_weld_type_value(value))
+        return (hits / len(cleaned)) * coverage
+    if field == "wps_number":
+        hits = sum(1 for value in cleaned if looks_like_wps_value(value))
+        return (hits / len(cleaned)) * coverage
+    if field == "remarks":
+        scores = [description_richness_score(value) for value in cleaned]
+        return (sum(scores) / len(scores)) * coverage
+    return 0.0
+
+
+def normalize_weld_list_pipe_size(value: str | None) -> str | None:
+    if not value:
+        return None
+    compact = value.upper().replace(" ", "")
+    if re.fullmatch(r"\d+(?:/\d+)?", compact):
+        return compact
+    match = re.search(r"(\d+(?:/\d+)?)", compact)
+    if match:
+        return match.group(1)
+    return None
+
+
+def normalize_weld_list_value(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = re.sub(r"\s+", " ", value).strip()
+    return text or None
+
+
+def looks_like_weld_type_value(value: str) -> bool:
+    compact = normalize_header_text(value)
+    return compact in {"BW", "FW", "SW", "TW", "SP", "SHOP", "FIELD", "PIPE"}
+
+
+def looks_like_wps_value(value: str) -> bool:
+    compact = normalize_header_text(value)
+    return bool(re.fullmatch(r"[A-Z]{0,3}\d{1,4}[A-Z0-9]*", compact) or "WPS" in compact)
+
+
+def collect_weld_list_issues(row: dict[str, str | float | None]) -> list[str]:
+    issues: list[str] = []
+    if not row.get("weld_id"):
+        issues.append("missing_weld_id")
+    if not row.get("wps_number"):
+        issues.append("missing_wps_number")
+    if not row.get("weld_type"):
+        issues.append("missing_weld_type")
+    if float(row.get("confidence", 0.0) or 0.0) < 0.7:
+        issues.append("low_confidence")
+    return issues
 
 
 def looks_like_bom_tag_candidate(value: str) -> bool:
@@ -1058,7 +1372,16 @@ def estimate_weld_list_row_count(image_path: Path) -> int:
     if len(line_clusters) < 4:
         return 0
 
-    return max(0, len(line_clusters) - 2)
+    header_lines = 2
+    if len(line_clusters) >= 4:
+        centers = [sum(cluster) / len(cluster) for cluster in line_clusters[:4]]
+        first_gap = centers[1] - centers[0]
+        second_gap = centers[2] - centers[1]
+        third_gap = centers[3] - centers[2]
+        if second_gap < first_gap * 0.65 and third_gap < first_gap * 0.65:
+            header_lines = 3
+
+    return max(0, len(line_clusters) - header_lines)
 
 
 def cluster_line_indices(indices: list[int], max_gap: int = 2) -> list[list[int]]:

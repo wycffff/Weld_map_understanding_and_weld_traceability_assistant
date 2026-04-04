@@ -6,7 +6,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageFilter, ImageOps
 
 from weld_assistant.config import AppConfig
 from weld_assistant.contracts import LayoutPlan, OCRResult, OCRTable, OCRTableCell, OCRToken, PreprocessedDocument
@@ -45,7 +45,7 @@ class BaseOCREngine:
         raise NotImplementedError
 
     def _prepare_roi_image(self, roi_image: str, roi_meta: dict[str, Any]) -> str:
-        if not roi_image or roi_meta.get("roi_type") != "roi_bom_table":
+        if not roi_image or roi_meta.get("roi_type") not in {"roi_bom_table", "roi_preview"}:
             return roi_image
 
         path = Path(roi_image)
@@ -55,10 +55,18 @@ class BaseOCREngine:
             return roi_image
 
         scale = 2
-        if image.width < 900:
+        if roi_meta.get("roi_type") == "roi_preview":
+            scale = 1
+        elif roi_meta.get("roi_id") == "weld_list":
+            scale = 5 if image.width >= 500 else 6
+        elif image.width < 900:
             scale = 3
         resized = image.resize((image.width * scale, image.height * scale))
         enhanced = ImageOps.autocontrast(resized)
+        if roi_meta.get("roi_id") == "weld_list":
+            enhanced = ImageOps.equalize(enhanced)
+            enhanced = enhanced.filter(ImageFilter.SHARPEN).filter(ImageFilter.SHARPEN)
+            enhanced = enhanced.point(lambda pixel: 255 if pixel > 170 else 0)
         prepared_path = self.prepared_dir / f"{path.stem}_prep.png"
         enhanced.save(prepared_path)
         return str(prepared_path)
@@ -244,7 +252,7 @@ def build_table_from_tokens(roi_id: str, tokens: list[OCRToken], row_tolerance: 
 
     header_candidates = [row for row in rows if len(row) > 1]
     header_row = max(header_candidates or rows, key=header_score)
-    if roi_id == "parts_list":
+    if roi_id in {"parts_list", "weld_list"}:
         column_positions = _build_table_column_positions(rows, header_row, roi_id)
     else:
         column_positions = _header_column_positions(header_row)
@@ -278,6 +286,8 @@ def _looks_like_bom_header(text: str) -> bool:
     return (
         upper.startswith(("TA", "DES", "QT", "GT", "MA", "XA", "IT", "NO"))
         or upper in {"QTY", "GTY", "MAT", "XAT", "TAG", "TAO", "ITEM", "NO"}
+        or upper.startswith(("WELD", "SIZE", "TYPE", "WPS", "REM"))
+        or upper in {"WELDNO", "SIZE", "TYPE", "WPSNO", "REMARKS"}
     )
 
 
@@ -287,6 +297,8 @@ def _adaptive_row_tolerance(tokens: list[OCRToken], roi_id: str) -> int:
         return 0
     if roi_id == "parts_list":
         return min(20, max(8, int(median(heights) * 0.75)))
+    if roi_id == "weld_list":
+        return min(18, max(6, int(median(heights) * 0.65)))
     return min(48, max(28, int(median(heights) * 1.2)))
 
 
@@ -325,6 +337,8 @@ def _adaptive_column_tolerance(tokens: list[OCRToken], roi_id: str) -> int:
         return 64 if roi_id == "parts_list" else 28
     if roi_id == "parts_list":
         return min(96, max(60, int(median(widths) * 1.2)))
+    if roi_id == "weld_list":
+        return min(80, max(30, int(median(widths) * 0.9)))
     return min(72, max(28, int(median(widths) * 0.5)))
 
 

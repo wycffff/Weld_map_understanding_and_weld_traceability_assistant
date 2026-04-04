@@ -7,7 +7,8 @@ from pathlib import Path
 from PIL import Image
 
 from weld_assistant.config import AppConfig
-from weld_assistant.contracts import LayoutPlan, OCRResult, PreprocessedDocument, ROI
+from weld_assistant.contracts import DrawingClassification, LayoutPlan, OCRResult, PreprocessedDocument, ROI
+from weld_assistant.modules.classifier import DrawingClassifier
 from weld_assistant.utils.files import ensure_dir
 
 
@@ -15,18 +16,70 @@ class RegionPlanner:
     def __init__(self, config: AppConfig):
         self.config = config
         self.roi_dir = ensure_dir(Path(config.pipeline.data_root) / "rois")
+        self.classifier = DrawingClassifier()
 
-    def plan(self, doc: PreprocessedDocument, ocr_preview: OCRResult | None = None) -> LayoutPlan:
+    def build_preview_plan(self, doc: PreprocessedDocument) -> LayoutPlan:
+        image = Image.open(doc.versions["clean"])
+        preview_roi = ROI(
+            roi_id="preview_fullpage",
+            type="roi_preview",
+            bbox=[0, 0, image.width, image.height],
+            overlap=0.0,
+            source_image_version="clean",
+        )
+        self._materialize_rois(doc, [preview_roi])
+        return LayoutPlan(
+            document_id=doc.document_id,
+            rois=[preview_roi],
+            drawing_type="unknown",
+            supported=True,
+            layout_log={"method": "preview_scan", "layout_confidence": "medium"},
+        )
+
+    def classify(self, ocr_preview: OCRResult | None) -> DrawingClassification:
+        return self.classifier.classify(ocr_preview)
+
+    def plan(
+        self,
+        doc: PreprocessedDocument,
+        ocr_preview: OCRResult | None = None,
+        classification: DrawingClassification | None = None,
+    ) -> LayoutPlan:
+        classification = classification or self.classify(ocr_preview)
+        if not classification.supported:
+            return LayoutPlan(
+                document_id=doc.document_id,
+                rois=[],
+                drawing_type=classification.drawing_type,
+                supported=False,
+                rejection_reason=classification.rejection_reason,
+                layout_log={
+                    "method": "rejected_before_layout",
+                    "layout_confidence": "high" if classification.matched_signals else "low",
+                    "document_profile": classification.document_profile,
+                    "drawing_type": classification.drawing_type,
+                    "classification_method": classification.classification_method,
+                    "matched_signals": classification.matched_signals,
+                    "fallback_used": False,
+                },
+            )
+
         if self.config.layout.mode == "auto":
-            planned = self._plan_auto(doc, ocr_preview)
+            planned = self._plan_auto(doc, ocr_preview, classification)
             if planned.rois:
                 return planned
-        return self._plan_manual(doc, ocr_preview)
+        return self._plan_manual(doc, ocr_preview, classification)
 
-    def _plan_manual(self, doc: PreprocessedDocument, ocr_preview: OCRResult | None = None) -> LayoutPlan:
+    def _plan_manual(
+        self,
+        doc: PreprocessedDocument,
+        ocr_preview: OCRResult | None = None,
+        classification: DrawingClassification | None = None,
+    ) -> LayoutPlan:
         config_path = Path(self.config.layout.manual_roi_config)
         raw = json.loads(config_path.read_text(encoding="utf-8"))
-        profile = self._detect_document_profile(doc, ocr_preview)
+        classification = classification or self.classify(ocr_preview)
+        profile = classification.document_profile
         templates = (
             raw.get(doc.document_id)
             or raw.get((doc.source_filename or "").lower())
@@ -46,26 +99,56 @@ class RegionPlanner:
         return LayoutPlan(
             document_id=doc.document_id,
             rois=rois,
+            drawing_type=classification.drawing_type,
+            supported=classification.supported,
+            rejection_reason=classification.rejection_reason,
             layout_log={
                 "method": "manual",
                 "layout_confidence": "medium",
                 "fallback_used": False,
                 "document_profile": profile,
+                "drawing_type": classification.drawing_type,
+                "classification_method": classification.classification_method,
+                "matched_signals": classification.matched_signals,
             },
         )
 
-    def _plan_auto(self, doc: PreprocessedDocument, ocr_preview: OCRResult | None = None) -> LayoutPlan:
+    def _plan_auto(
+        self,
+        doc: PreprocessedDocument,
+        ocr_preview: OCRResult | None = None,
+        classification: DrawingClassification | None = None,
+    ) -> LayoutPlan:
+        classification = classification or self.classify(ocr_preview)
         rois: list[ROI] = []
         if ocr_preview:
             rois.extend(self._keyword_rois(doc, ocr_preview))
             rois.extend(self._weld_rois_from_preview(ocr_preview))
         if not rois:
-            return LayoutPlan(document_id=doc.document_id, rois=[], layout_log={"layout_confidence": "low"})
+            return LayoutPlan(
+                document_id=doc.document_id,
+                rois=[],
+                drawing_type=classification.drawing_type,
+                supported=classification.supported,
+                rejection_reason=classification.rejection_reason,
+                layout_log={"layout_confidence": "low", "document_profile": classification.document_profile},
+            )
         self._materialize_rois(doc, rois)
         return LayoutPlan(
             document_id=doc.document_id,
             rois=self._dedupe(rois),
-            layout_log={"method": "keyword_preview", "layout_confidence": "low", "fallback_used": True},
+            drawing_type=classification.drawing_type,
+            supported=classification.supported,
+            rejection_reason=classification.rejection_reason,
+            layout_log={
+                "method": "keyword_preview",
+                "layout_confidence": "low",
+                "fallback_used": True,
+                "document_profile": classification.document_profile,
+                "drawing_type": classification.drawing_type,
+                "classification_method": classification.classification_method,
+                "matched_signals": classification.matched_signals,
+            },
         )
 
     def _keyword_rois(self, doc: PreprocessedDocument, ocr_preview: OCRResult) -> list[ROI]:
@@ -158,25 +241,16 @@ class RegionPlanner:
         )
 
     def _materialize_rois(self, doc: PreprocessedDocument, rois: list[ROI]) -> None:
+        source_suffix = ""
+        if doc.source_filename:
+            source_suffix = re.sub(r"[^A-Z0-9]+", "_", Path(doc.source_filename).stem.upper()).strip("_")
         for roi in rois:
             source = Image.open(doc.versions.get(roi.source_image_version, doc.versions["clean"]))
             cropped = source.crop(tuple(roi.bbox))
-            output_path = self.roi_dir / f"{doc.document_id}_{roi.roi_id}.png"
+            name_parts = [doc.document_id]
+            if source_suffix:
+                name_parts.append(source_suffix)
+            name_parts.append(roi.roi_id)
+            output_path = self.roi_dir / f"{'_'.join(name_parts)}.png"
             cropped.save(output_path)
             roi.image_path = str(output_path)
-
-    @staticmethod
-    def _detect_document_profile(doc: PreprocessedDocument, ocr_preview: OCRResult | None) -> str:
-        if not ocr_preview:
-            return "default"
-
-        texts = " ".join(token.text.upper() for token in ocr_preview.tokens)
-        if any(keyword in texts for keyword in ("ERECTIONMATERIALS", "FABRICATIONMATERIALS", "WELDINGLIST")):
-            return "welding_map_sheet"
-        if "PARTSLIST" in texts or (("WPS" in texts or "WPQR" in texts or "WPOREID" in texts) and re.search(r"\bW\d+\b", texts)):
-            return "fabrication_weld_sheet"
-        if texts.count("ISOMETRICDRAWING") >= 2:
-            return "dual_isometric_sheet"
-        if "BILLOFMATERIALS" in texts:
-            return "simple_spool"
-        return "default"
