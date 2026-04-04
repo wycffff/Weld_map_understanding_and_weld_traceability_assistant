@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -152,6 +153,31 @@ class SQLiteRepository:
         with self.connect() as connection:
             return connection.execute("SELECT * FROM drawing WHERE drawing_number = ?", (drawing_number,)).fetchone()
 
+    def list_drawings(self, limit: int = 20) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM drawing ORDER BY imported_at DESC, drawing_number ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return list(rows)
+
+    def search_drawings(self, query: str, limit: int = 10) -> list[sqlite3.Row]:
+        normalized_query = normalize_lookup_key(query)
+        if not normalized_query:
+            return self.list_drawings(limit=limit)
+
+        with self.connect() as connection:
+            rows = connection.execute("SELECT * FROM drawing ORDER BY imported_at DESC, drawing_number ASC").fetchall()
+
+        scored_rows: list[tuple[int, sqlite3.Row]] = []
+        for row in rows:
+            score = self._score_drawing_match(row, query, normalized_query)
+            if score > 0:
+                scored_rows.append((score, row))
+
+        scored_rows.sort(key=lambda item: (-item[0], item[1]["drawing_number"]))
+        return [row for _, row in scored_rows[:limit]]
+
     def list_welds(self, drawing_number: str) -> list[sqlite3.Row]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -178,3 +204,38 @@ class SQLiteRepository:
             else:
                 rows = connection.execute("SELECT * FROM review_queue ORDER BY created_at DESC").fetchall()
             return list(rows)
+
+    @staticmethod
+    def _score_drawing_match(row: sqlite3.Row, raw_query: str, normalized_query: str) -> int:
+        score = 0
+        raw_query_upper = raw_query.strip().upper()
+        candidates = [
+            ("drawing_number", row["drawing_number"] or ""),
+            ("spool_name", row["spool_name"] or ""),
+            ("document_id", row["document_id"] or ""),
+        ]
+
+        for field, value in candidates:
+            value_upper = value.upper()
+            normalized_value = normalize_lookup_key(value)
+
+            if raw_query_upper and value_upper == raw_query_upper:
+                score = max(score, 120 if field == "drawing_number" else 100)
+            if normalized_value == normalized_query:
+                score = max(score, 115 if field == "drawing_number" else 95)
+            if raw_query_upper and value_upper.startswith(raw_query_upper):
+                score = max(score, 100 if field == "drawing_number" else 85)
+            if normalized_value.startswith(normalized_query):
+                score = max(score, 95 if field == "drawing_number" else 80)
+            if raw_query_upper and raw_query_upper in value_upper:
+                score = max(score, 80 if field == "drawing_number" else 70)
+            if normalized_query in normalized_value:
+                score = max(score, 75 if field == "drawing_number" else 65)
+
+        return score
+
+
+def normalize_lookup_key(value: str | None) -> str:
+    if not value:
+        return ""
+    return re.sub(r"[^A-Z0-9]", "", value.upper())

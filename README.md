@@ -1,45 +1,42 @@
-# Weld Map Understanding And Weld Traceability Assistant
+# Weld Map Understanding and Weld Traceability Assistant
 
-本项目面向单张管道等轴图 / weld map 的本地化解析与焊口追溯，目标是把图纸中的焊口、BOM、图号等信息结构化，并形成可落库、可复核、可更新进度、可导出的焊口追溯闭环。
+This project turns weld maps, spool drawings, and fabrication sheets into structured traceability data that can be reviewed, stored, updated, and exported.
 
-当前仓库已经完成一版可运行骨架：
+The system is being built as a modular Python application with OCR-first extraction, optional VLM assistance, SQLite persistence, and a Streamlit demo UI.
 
-- Phase 1：M1 `Input/Ingestion`、M2 `Preprocessing`、M3 `Layout & ROI Planner`、M4 `OCR Extraction` 适配层、M6 `Fusion & Parsing`
-- Phase 2：M7 `SQLite` 数据模型、M9 导出、M10 最简 `Streamlit` UI
-- Phase 3/4 预留接口：M5 `VLM Understanding`、自动布局增强、`review_queue`、进度与照片事件服务
+## What The Project Does
 
-## 项目目标
+- Ingest drawing files and assign stable `document_id` values.
+- Preprocess images into OCR-friendly variants.
+- Split drawings into semantic regions such as title blocks, BOM tables, isometric views, and weld labels.
+- Extract structured fields from OCR output.
+- Normalize and fuse drawing data, BOM items, and weld identifiers.
+- Store results in SQLite for later review and progress tracking.
+- Export JSON and CSV deliverables.
+- Provide a lightweight web UI for upload, search, review, and export.
 
-围绕一张真实工程图，实现以下闭环：
+## Design Principles
 
-1. 读懂图纸：输出 `StructuredDrawing.json`
-2. 建账落库：生成 drawing / weld / bom / review_queue 等实体
-3. 跟踪焊口：支持状态更新、照片绑定、检验状态
-4. 导出集成：生成 JSON / CSV，为 ERP 或后续系统对接留接口
+- OCR is the primary source of truth for exact fields.
+- VLM support is optional and used only for bounded semantic assistance.
+- Modules communicate through explicit contracts and can be replaced independently.
+- Uncertain fields go to `needs_review` instead of being silently forced.
+- Every stage should remain runnable even when advanced modules are disabled.
 
-设计约束来自前期 Spike 结论：
+## Module Map
 
-- `OCR 主，VLM 辅`
-- `ROI + 多次短调用`，不做整图一次性 VLM 推理
-- `冲突不硬判`，进入 `needs_review`
-- `全链路 provenance`，关键字段保留来源信息
+- `M1` Input / Ingestion
+- `M2` Preprocessing
+- `M3` Layout & ROI Planner
+- `M4` OCR Extraction
+- `M5` VLM Understanding
+- `M6` Fusion & Parsing
+- `M7` Traceability Data Model
+- `M8` Progress & Photo Linking
+- `M9` Export / Integration
+- `M10` UI / Demo
 
-## 模块划分
-
-系统按 10 个模块解耦：
-
-- M1 `Input / Ingestion`
-- M2 `Preprocessing`
-- M3 `Layout & ROI Planner`
-- M4 `OCR Extraction`
-- M5 `VLM Understanding`
-- M6 `Fusion & Parsing`
-- M7 `Traceability Data Model`
-- M8 `Progress & Photo Linking`
-- M9 `Export / Integration`
-- M10 `UI / Demo`
-
-模块之间只通过契约对象交互：
+Shared contracts:
 
 - `InputDocument`
 - `PreprocessedDocument`
@@ -47,146 +44,158 @@
 - `OCRResult`
 - `VLMResult`
 - `StructuredDrawing`
-- `DB entities`
 
-更完整的模块说明、阶段规划和验收目标见：
+See [docs/module-spec-summary.md](docs/module-spec-summary.md) for the English implementation summary derived from the original specification.
 
-- [docs/module-spec-summary.md](docs/module-spec-summary.md)
+## Current Status
 
-## 当前实现状态
+Implemented today:
 
-已落地内容：
+- Modular project structure and typed contracts.
+- Manual ROI flow with profile-based layout selection.
+- OCR adapters with `RapidOCR` as the default local path and `PaddleOCR` retained as an optional adapter.
+- Fusion logic for drawing fields, weld identifiers, and partially normalized BOM extraction.
+- SQLite repository, review queue persistence, and export services.
+- Streamlit demo UI.
+- CLI support for single-file parsing, batch parsing, schema generation, DB initialization, and exports.
+- Real-sample regression coverage with four drawing styles.
 
-- 项目结构、配置系统、Pydantic 契约模型
-- 手工 ROI 模式和自动布局 fallback 入口
-- OCR 适配器接口与多引擎接入点（当前默认 `RapidOCR`，保留 `PaddleOCR` 适配器）
-- 简化版 Fusion：drawing / BOM / weld 的基础融合与 `needs_review`
-- SQLite schema、导入仓储、导出服务
-- 焊口状态 / 检验 / 照片绑定服务骨架
-- CLI 和最简 Streamlit 界面
-- JSON Schema 生成与基础单元测试
+Current document profiles:
 
-当前默认 OCR 行为：
+- `simple_spool`
+- `fabrication_weld_sheet`
+- `welding_map_sheet`
+- `dual_isometric_sheet`
 
-- `vlm.enabled=false`
-- 默认 OCR 引擎是 `RapidOCR`，适合当前 Windows + Python 3.12 本地环境快速跑通
-- `PaddleOCR` 适配器仍保留，但在当前环境里可能受底层推理执行器兼容性影响
-- 若已配置的 OCR 引擎不可用，系统会优先退回 `RapidOCR`，最后才退到 `NullOCREngine`
+See [docs/sample-profile-analysis.md](docs/sample-profile-analysis.md) for the current sample set and parsing baseline.
 
-## 仓库结构
+## Repository Structure
 
 ```text
 .
-├─ config/
-│  ├─ config.yaml
-│  └─ roi_template_default.json
-├─ docs/
-├─ samples/
-│  └─ real/
-├─ schemas/
-├─ src/weld_assistant/
-├─ tests/
-├─ app.py
-└─ weld_cli.py
+├── config/
+│   ├── config.yaml
+│   └── roi_template_default.json
+├── docs/
+├── samples/
+│   └── real/
+├── schemas/
+├── src/weld_assistant/
+├── tests/
+├── app.py
+└── weld_cli.py
 ```
 
-## 首个真实样本
+## Real Samples
 
-当前仓库内已纳入一张真实图纸样本：
+The repository currently includes these real drawing samples:
 
 - [samples/real/1.jpg](samples/real/1.jpg)
+- [samples/real/2.jpeg](samples/real/2.jpeg)
+- [samples/real/3.png](samples/real/3.png)
+- [samples/real/4.webp](samples/real/4.webp)
 
-它来自用户当前提供的真实图纸，是后续手工 ROI、OCR 调试和真实链路验证的第一张基线样本。
+These samples are used as the current regression set for layout classification, OCR behavior, BOM extraction, weld extraction, and database import.
 
-## 快速开始
+## Quick Start
 
-### 1. 安装依赖
-
-基础依赖：
+### 1. Install dependencies
 
 ```powershell
 python -m pip install -r requirements.txt
+python -m pip install streamlit rapidocr_onnxruntime
 ```
 
-UI 依赖：
-
-```powershell
-python -m pip install streamlit
-```
-
-默认 OCR 依赖：
-
-```powershell
-python -m pip install rapidocr_onnxruntime
-```
-
-可选 `PaddleOCR` 依赖：
+Optional OCR adapter:
 
 ```powershell
 python -m pip install paddleocr paddlepaddle
 ```
 
-### 2. 生成 schema
+### 2. Generate the schema
 
 ```powershell
 python weld_cli.py write-schema --output schemas\structured_drawing.schema.json
 ```
 
-### 3. 初始化数据库
+### 3. Initialize the database
 
 ```powershell
 python weld_cli.py init-db
 ```
 
-### 4. 跑一张图纸
+### 4. Parse one drawing
 
 ```powershell
 python weld_cli.py parse --input samples\real\1.jpg --persist --overwrite --output data\final\sample_output.json
 ```
 
-### 5. 启动 UI
+### 5. Parse the full sample set
+
+```powershell
+python weld_cli.py parse-batch --input-dir samples\real --persist --overwrite --output data\final\batch_summary.json
+```
+
+### 6. Launch the web UI
 
 ```powershell
 streamlit run app.py
 ```
 
-## 配置说明
+## UI Notes
 
-主配置在 [config/config.yaml](config/config.yaml)，关键项包括：
+The web UI supports:
+
+- Uploading and processing a new drawing.
+- Previewing generated ROIs.
+- Searching existing reports by drawing number, spool name, or document ID.
+- Exporting JSON and CSV outputs from stored results.
+- Reviewing unresolved items from the review queue.
+
+Search is normalized so queries like `C52`, `c-52`, or partial drawing fragments can still return matches.
+
+## CLI Commands
+
+- `parse`: process a single drawing
+- `parse-batch`: process all files in a directory
+- `init-db`: initialize SQLite schema
+- `export`: export stored JSON and CSV for a drawing
+- `write-schema`: write the current JSON schema to disk
+
+## Configuration
+
+Main runtime config: [config/config.yaml](config/config.yaml)
+
+Important fields:
 
 - `layout.mode`: `manual | auto`
-- `layout.weld_id_pattern`: 焊口编号正则
-- `ocr.engine`: 当前默认 `rapidocr`
-- `vlm.enabled`: 是否启用 VLM
-- `database.path`: SQLite 路径
-- `export.output_dir`: 导出目录
+- `layout.weld_id_pattern`: weld ID regex
+- `ocr.engine`: default OCR engine
+- `vlm.enabled`: enable or disable VLM assistance
+- `database.path`: SQLite database path
+- `export.output_dir`: export directory
 
-## 阶段路线图
-
-- Phase 1：解析骨架跑通，先建立 OCR 基线
-- Phase 2：落库、展示、导出形成最小可演示产品
-- Phase 3：接入自动布局与 VLM 语义增强
-- Phase 4：补齐复核队列、状态管理、照片证据闭环
-- Phase 5：跑批评估、误差回溯和精度硬化
-
-## 测试
+## Testing
 
 ```powershell
 $env:PYTHONPATH='src'
-$env:PYTHONDONTWRITEBYTECODE='1'
 python -m unittest discover -s tests -v
 ```
 
-## 下一步
+## Current Batch Baseline
 
-围绕 `samples/real/1.jpg`，下一轮重点会是：
+Latest local batch summary:
 
-- 安装并打通真实 `PaddleOCR`
-- 为真实样本建立更贴合的 ROI 模板
-- 跑出第一版真实 `StructuredDrawing`
-- 用真实图纸推动 Phase 1 从“骨架可跑”进入“结果可用”
+- `1.jpg` -> drawing `4-N1-101`, `5` BOM rows, `1` weld
+- `2.jpeg` -> drawing `C-52`, `1` BOM row, `11` welds
+- `3.png` -> drawing `N-30-P-22009-AA1`, `2` BOM rows, `0` welds
+- `4.webp` -> low-resolution fallback, review-first
 
-补充说明：
+This baseline is intentionally incomplete. The goal right now is reliable modular parsing with reviewable outputs, then continued hardening toward customer-grade accuracy across multiple drawing styles.
 
-- 目前已经为 `1.jpg` 增加了专用手工 ROI 模板
-- 手工 ROI 模式现在会在第一次 OCR 预扫后自动补生成焊口 ROI
+## Next Priorities
+
+- Improve `WELDING LIST` extraction for welding-map sheets.
+- Expand parts-list and item-code table mapping.
+- Strengthen low-resolution fallback for stacked isometric pages.
+- Add more evaluation metrics and regression outputs for real samples.

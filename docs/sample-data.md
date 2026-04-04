@@ -1,28 +1,37 @@
-# 样本数据说明
+# Sample Data Notes
 
-当前仓库已纳入第一张真实图纸样本：
+This document tracks the real sample set currently used for local development and regression testing.
+
+## Current Real Samples
 
 - `samples/real/1.jpg`
+- `samples/real/2.jpeg`
+- `samples/real/3.png`
+- `samples/real/4.webp`
 
-来源：
+## Origins
 
-- 用户本地路径：`C:\Users\wycff\Pictures\1.jpg`
+- `1.jpg` was provided from the local path `C:\Users\wycff\Pictures\1.jpg`
+- `2.jpeg` was provided from the local path `C:\Users\wycff\Pictures\2.jpeg`
+- `3.png` was provided from the local path `C:\Users\wycff\Pictures\3.png`
+- `4.webp` was provided from the local path `C:\Users\wycff\Pictures\4.webp`
 
-用途：
+## Why These Samples Matter
 
-- 作为真实 ROI 模板调试基线
-- 作为 OCR 接入后的第一张 E2E 测试图
-- 作为 README 和后续评估文档中的最小真实样本
+- They represent different drawing styles instead of a single template.
+- They are used to test layout profile selection.
+- They provide the current baseline for OCR, BOM extraction, weld extraction, and DB import behavior.
+- They are the main regression set used before adding more samples or ground-truth labels.
 
-当前限制：
+## Current Limitations
 
-- 目前只有这一张真实图纸
-- 真实焊口照片、人工 BOM 真值、人工 weld 真值还未建立
+- The sample set is still small.
+- Ground-truth annotations for every weld and every BOM row are not yet complete.
+- Some low-resolution pages still fall back to a review-first workflow.
 
-下一步建议：
+## Recommended Next Steps
 
-1. 为 `1.jpg` 建立专用 ROI 模板
-2. 跑出第一版 OCR 结果
-3. 手工标注 weld/BOM 真值
-4. 用该样本形成第一条真实验收基线
-
+1. Add more samples for each document profile.
+2. Build ground-truth labels for drawing number, BOM rows, and weld IDs.
+3. Track per-sample quality metrics in a structured evaluation report.
+4. Use the batch sample set as the minimum regression gate for future parsing changes.

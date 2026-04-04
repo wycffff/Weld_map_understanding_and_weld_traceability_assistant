@@ -93,6 +93,49 @@ class RepositoryTest(unittest.TestCase):
         self.assertEqual([row["weld_id"] for row in repo.list_welds("NEW-001")], ["W02"])
         self.assertEqual([row["tag"] for row in repo.list_bom_items("NEW-001")], ["NEW"])
 
+    def test_search_drawings_matches_normalized_queries(self) -> None:
+        temp_root = Path("data/test_runs")
+        temp_root.mkdir(parents=True, exist_ok=True)
+        tmpdir = temp_root / f"repo_{uuid4().hex[:8]}"
+        tmpdir.mkdir(parents=True, exist_ok=True)
+        config = AppConfig.model_validate(
+            {
+                "pipeline": {"data_root": str(tmpdir)},
+                "database": {"path": str(tmpdir / "db" / "test.db")},
+            }
+        )
+        repo = SQLiteRepository(config)
+        repo.init_db()
+
+        drawings = [
+            StructuredDrawing(
+                document_id="doc_a",
+                drawing=DrawingData(drawing_number="C-52", spool_name="52"),
+                processing_log=ProcessingLog(
+                    pipeline_version="0.1.0",
+                    processed_at="2026-04-04T10:00:00+03:00",
+                    layout_confidence="high",
+                    ocr_engine="test",
+                ),
+            ),
+            StructuredDrawing(
+                document_id="doc_b",
+                drawing=DrawingData(drawing_number="N-30-P-22009-AA1", spool_name="30-P-22009-AA1"),
+                processing_log=ProcessingLog(
+                    pipeline_version="0.1.0",
+                    processed_at="2026-04-04T10:01:00+03:00",
+                    layout_confidence="high",
+                    ocr_engine="test",
+                ),
+            ),
+        ]
+        for drawing in drawings:
+            repo.import_structured_drawing(drawing)
+
+        self.assertEqual(repo.search_drawings("C52")[0]["drawing_number"], "C-52")
+        self.assertEqual(repo.search_drawings("c-52")[0]["drawing_number"], "C-52")
+        self.assertEqual(repo.search_drawings("22009")[0]["drawing_number"], "N-30-P-22009-AA1")
+
 
 if __name__ == "__main__":
     unittest.main()
