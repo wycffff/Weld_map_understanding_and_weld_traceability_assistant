@@ -60,7 +60,7 @@ Implemented today:
 - SQLite repository, review queue persistence, and export services.
 - Traceability actions for weld status, inspection status, photo evidence, and append-only event history.
 - Streamlit demo UI.
-- CLI support for single-file parsing, batch parsing, schema generation, DB initialization, and exports.
+- CLI support for single-file parsing, batch parsing, schema generation, DB initialization, exports, and sample evaluation against local ground truth.
 - Real-sample regression coverage with four drawing styles.
 
 Current document profiles:
@@ -71,6 +71,7 @@ Current document profiles:
 - `dual_isometric_sheet`
 
 See [docs/sample-profile-analysis.md](docs/sample-profile-analysis.md) for the current sample set and parsing baseline.
+The current machine-readable sample truth set lives in [eval/sample_ground_truth.json](eval/sample_ground_truth.json).
 
 ## Module Status
 
@@ -152,7 +153,13 @@ python weld_cli.py parse --input samples\real\1.jpg --persist --overwrite --outp
 python weld_cli.py parse-batch --input-dir samples\real --persist --overwrite --output data\final\batch_summary.json
 ```
 
-### 6. Launch the web UI
+### 6. Evaluate the sample set against local ground truth
+
+```powershell
+python weld_cli.py evaluate-samples --input-dir samples\real --ground-truth eval\sample_ground_truth.json --output data\final\evaluation_report.json
+```
+
+### 7. Launch the web UI
 
 ```powershell
 streamlit run app.py
@@ -181,11 +188,13 @@ When a drawing has no stored weld rows yet, or when some welds are still missing
 Weld identity is scoped by `drawing_number + weld_id`, so `W01` may exist on multiple drawings without conflict while remaining unique inside each drawing.
 The review assistant now uses a hard timeout for local Ollama calls so difficult requests fail fast instead of blocking the UI indefinitely.
 The review-assistant timeout is separate from visual VLM tasks and can be raised in the UI up to 600 seconds for slow local CPU runs.
+Each drawing detail page now shows a small health summary with stored weld count, completed weld count, pending inspection count, and open review count.
 
 ## CLI Commands
 
 - `parse`: process a single drawing
 - `parse-batch`: process all files in a directory
+- `evaluate-samples`: process the curated sample set and compare results with the local ground-truth file
 - `init-db`: initialize SQLite schema
 - `export`: export stored JSON and CSV for a drawing
 - `write-schema`: write the current JSON schema to disk
@@ -205,6 +214,7 @@ Important fields:
 - `vlm.mode`: `review_only | always`
 - `vlm.max_tasks_per_document`: cap VLM task count per drawing
 - `vlm.max_output_tokens`: limit local Ollama output size per task
+- `vlm.task_max_output_tokens`: per-task output caps so location and review tasks are not truncated by the global default
 - `vlm.request_timeout_sec`: hard timeout for each bounded Ollama call
 - `vlm.review_request_timeout_sec`: default timeout for the text-only review assistant
 - `database.path`: SQLite database path
@@ -216,6 +226,14 @@ Important fields:
 $env:PYTHONPATH='src'
 python -m unittest discover -s tests -v
 ```
+
+Current automated coverage includes:
+
+- fusion behavior for drawing extraction, BOM normalization, VLM fallback, and numeric weld inference
+- repository behavior for overwrite rules, normalized search, scoped weld identity, and review resolution
+- progress behavior for manual weld intake, bulk weld intake, status changes, inspection changes, and photo linking
+- review-service behavior for heuristic suggestions, sanitized LLM overlays, and timeout forwarding
+- service smoke coverage for ingestion and preprocessing
 
 ## Current Batch Baseline
 

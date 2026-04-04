@@ -6,6 +6,7 @@ from pathlib import Path
 
 from weld_assistant.config import load_config
 from weld_assistant.db.repository import SQLiteRepository
+from weld_assistant.services.evaluation import evaluate_structured_drawing, load_ground_truth, summarize_evaluation
 from weld_assistant.services.exporter import RepositoryExporter
 from weld_assistant.services.pipeline import PipelineService
 
@@ -28,6 +29,14 @@ def build_parser() -> argparse.ArgumentParser:
     parse_batch_cmd.add_argument("--persist", action="store_true")
     parse_batch_cmd.add_argument("--overwrite", action="store_true")
     parse_batch_cmd.add_argument("--use-vlm", action="store_true")
+
+    evaluate_cmd = subparsers.add_parser("evaluate-samples")
+    evaluate_cmd.add_argument("--input-dir", default="samples/real")
+    evaluate_cmd.add_argument("--ground-truth", default="eval/sample_ground_truth.json")
+    evaluate_cmd.add_argument("--output", default="data/final/evaluation_report.json")
+    evaluate_cmd.add_argument("--persist", action="store_true")
+    evaluate_cmd.add_argument("--overwrite", action="store_true")
+    evaluate_cmd.add_argument("--use-vlm", action="store_true")
 
     init_db_cmd = subparsers.add_parser("init-db")
 
@@ -84,6 +93,36 @@ def main() -> None:
             )
         Path(args.output).write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return
+
+    if args.command == "evaluate-samples":
+        input_dir = Path(args.input_dir)
+        ground_truth = load_ground_truth(args.ground_truth)
+        sample_reports: list[dict[str, object]] = []
+        for sample_truth in ground_truth.get("samples", []):
+            input_path = input_dir / Path(sample_truth["input_file"]).name
+            structured = pipeline.process_file(
+                input_path,
+                persist=args.persist,
+                overwrite=args.overwrite,
+                use_vlm=args.use_vlm,
+            )
+            sample_reports.append(
+                evaluate_structured_drawing(
+                    input_file=str(input_path),
+                    structured=structured,
+                    sample_truth=sample_truth,
+                )
+            )
+
+        payload = {
+            "ground_truth_path": str(Path(args.ground_truth)),
+            "aggregate": summarize_evaluation(sample_reports),
+            "samples": sample_reports,
+        }
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
     if args.command == "init-db":

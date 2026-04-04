@@ -48,6 +48,7 @@ class VlmSection(BaseModel):
     max_output_tokens: int = 96
     request_timeout_sec: int = 30
     review_request_timeout_sec: int = 180
+    task_max_output_tokens: dict[str, int] = Field(default_factory=dict)
 
 
 class FusionSection(BaseModel):

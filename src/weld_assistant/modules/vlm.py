@@ -83,7 +83,7 @@ class VLMEngine:
         response = self._chat(
             messages=[{"role": "user", "content": prompt, "images": [roi_path]}],
             schema=schema,
-            max_output_tokens=self.config.vlm.max_output_tokens,
+            max_output_tokens=self.max_output_tokens_for_task(task_type),
             timeout_sec=self.config.vlm.request_timeout_sec,
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
@@ -110,7 +110,7 @@ class VLMEngine:
         response = self._chat(
             messages=[{"role": "user", "content": prompt}],
             schema=TASK_SCHEMAS["review_assist"],
-            max_output_tokens=max(self.config.vlm.max_output_tokens, 128),
+            max_output_tokens=self.max_output_tokens_for_task("review_assist"),
             timeout_sec=timeout_sec,
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
@@ -196,6 +196,16 @@ class VLMEngine:
         if not payload["ok"]:
             raise RuntimeError(payload["error"])
         return payload["response"]
+
+    def max_output_tokens_for_task(self, task_type: str) -> int:
+        configured = self.config.vlm.task_max_output_tokens.get(task_type)
+        if configured is not None:
+            return int(configured)
+        if task_type in {"weld_location_describe", "review_assist"}:
+            return max(self.config.vlm.max_output_tokens, 256)
+        if task_type in {"drawing_title_extract", "weld_list_extract"}:
+            return max(self.config.vlm.max_output_tokens, 160)
+        return self.config.vlm.max_output_tokens
 
     def _build_task_plan(self, layout: LayoutPlan, ocr_result: OCRResult | None) -> list[tuple[str, Any, dict[str, Any]]]:
         mode = self.config.vlm.mode

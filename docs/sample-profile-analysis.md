@@ -36,14 +36,47 @@
   - noisy material / quantity / part labels
 - Route uncertain fields into `needs_review` instead of silently forcing a value.
 
+## Ground Truth Snapshot
+
+The current local ground-truth file is [eval/sample_ground_truth.json](../eval/sample_ground_truth.json).
+
+Sample-by-sample manual truth used today:
+
+- `1.jpg`
+  - Manual truth drawing number: `4-N1-101`
+  - Manual truth weld IDs: `W01`
+  - Clarification: `F-9-4` is a valve/material tag, not a weld identifier.
+- `2.jpeg`
+  - Manual truth drawing number: `C-52`
+  - Manual truth weld IDs: `W01..W11`
+- `3.png`
+  - Manual truth drawing number: `N-30-P-22009-AA1`
+  - Manual truth weld IDs: `1..17`
+  - Limitation: the current parser still reaches these via review-first welding-list inference rather than robust cell-level extraction.
+- `4.webp`
+  - Excluded from quantitative metrics for now.
+  - Reason: the currently available source is too low-resolution to support a trustworthy human-labeled truth set.
+
 ## Current Baseline
 
 As of the latest local run:
 
-- `1.jpg`: drawing number is stable, weld `W01` is found, and the compact BOM now resolves to `4` usable rows instead of fragmented duplicates.
-- `2.jpeg`: drawing number `C-52` is found, weld boxes are found (`W01..W11`), and the parts list now produces `6` reviewable BOM rows.
-- `3.png`: line id `N-30-P-22009-AA1` is found, right-side tables now produce `3` rows, and the welding list yields `17` numeric weld IDs through review-first grid inference.
-- `4.webp`: OCR can classify the page style, but text is too small for reliable title/BOM extraction; this sample remains review-first.
+- `1.jpg`
+  - System output drawing number: `4-N1-101`
+  - System output weld IDs: `W01`
+  - Status: matches the current manual truth set.
+- `2.jpeg`
+  - System output drawing number: `C-52`
+  - System output weld IDs: `W01..W11`
+  - Status: weld coverage matches the current manual truth set, but BOM quality is still review-heavy.
+- `3.png`
+  - System output drawing number: `N-30-P-22009-AA1`
+  - System output weld IDs: `1..17`
+  - Status: weld count matches the current manual truth set, but the route is still brittle because the welding list is not yet parsed at cell level.
+- `4.webp`
+  - System output drawing number: falls back to `document_id`
+  - System output weld IDs: none
+  - Status: intentional review-first / manual-intake path until a better source image is available.
 
 ## Next Hardening Targets
 

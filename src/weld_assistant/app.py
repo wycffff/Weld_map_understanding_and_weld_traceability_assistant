@@ -124,8 +124,12 @@ def format_drawing_option(drawing_number: str, matches) -> str:
 
 
 def render_traceability_workspace(st, repository: SQLiteRepository, progress_service: ProgressService, drawing_number: str) -> None:
+    drawing_row = repository.get_drawing(drawing_number)
     weld_rows = repository.list_welds(drawing_number)
+    review_rows = repository.list_review_queue(drawing_number, unresolved_only=True)
+    photo_rows = repository.list_photo_evidence(drawing_number)
     st.subheader("Weld Traceability")
+    render_drawing_health_summary(st, drawing_row, weld_rows, review_rows, photo_rows)
     manual_tab, manage_tab = st.tabs(["Manual weld intake", "Manage stored welds"])
 
     with manual_tab:
@@ -205,8 +209,11 @@ def render_traceability_workspace(st, repository: SQLiteRepository, progress_ser
 
     with manage_tab:
         if not weld_rows:
-            st.caption("No weld rows are stored for this drawing yet. Use the manual intake tab above to create one.")
-            photo_rows = repository.list_photo_evidence(drawing_number)
+            st.error(
+                "No weld rows are stored for this drawing yet. "
+                "This usually means the drawing needs manual intake or the source image quality is too low for the current OCR path."
+            )
+            st.caption("Use the manual intake tab above to create weld rows before linking progress or photos.")
             if photo_rows:
                 st.caption("Drawing-level linked photos")
                 st.dataframe([dict(row) for row in photo_rows], use_container_width=True)
@@ -393,6 +400,7 @@ def render_review_queue_workspace(
             st.write(llm_result["summary"])
             if llm_result.get("notes"):
                 st.caption(llm_result["notes"])
+            st.caption("AI-generated review guidance is advisory only. The final decision remains with the operator.")
 
     if candidate_weld_ids and selected_review["drawing_number"]:
         with action_columns[0]:
@@ -476,6 +484,28 @@ def format_review_option(review_id: str, reviews) -> str:
 
 def configured_review_timeout_seconds(review_service: ReviewService) -> int:
     return int(review_service.vlm_engine.config.vlm.review_request_timeout_sec)
+
+
+def render_drawing_health_summary(st, drawing_row, weld_rows, review_rows, photo_rows) -> None:
+    metric_columns = st.columns(4)
+    completed_welds = sum(1 for row in weld_rows if row["status"] in {"done", "completed"})
+    pending_inspection = sum(1 for row in weld_rows if row["inspection_status"] in {"pending", "not_checked"})
+    metric_columns[0].metric("Stored welds", len(weld_rows))
+    metric_columns[1].metric("Completed welds", completed_welds)
+    metric_columns[2].metric("Pending inspection", pending_inspection)
+    metric_columns[3].metric("Open review items", len(review_rows))
+
+    if drawing_row and drawing_row["drawing_number"] == drawing_row["document_id"]:
+        st.warning(
+            "This drawing is still using document_id as the drawing number fallback. "
+            "Title-block recognition likely needs manual confirmation."
+        )
+    if len(weld_rows) == 0:
+        st.warning(
+            "No welds were detected for this drawing. Please verify the source image and use manual weld intake if needed."
+        )
+    if len(photo_rows) > 0:
+        st.caption(f"Linked photos for this drawing: {len(photo_rows)}")
 
 
 def dedupe_preserve_order(values: list[str]) -> list[str]:

@@ -44,6 +44,11 @@ vlm:
   max_output_tokens: 96
   request_timeout_sec: 30
   review_request_timeout_sec: 180
+  task_max_output_tokens:
+    drawing_title_extract: 160
+    weld_list_extract: 160
+    weld_location_describe: 256
+    review_assist: 256
 
 fusion:
   ocr_primary_confidence_threshold: 0.8
