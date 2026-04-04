@@ -171,11 +171,12 @@ The web UI supports:
 - Uploading weld photos and linking them to stored weld IDs.
 - Viewing append-only event history and linked photo evidence per weld.
 - Exporting JSON and CSV outputs from stored results.
-- Reviewing unresolved items from the review queue.
+- Reviewing unresolved items from the review queue and resolving or reopening them.
 
 Search is normalized so queries like `C52`, `c-52`, or partial drawing fragments can still return matches.
 VLM assistance is visible in the UI status banner and can be enabled per run. On the current machine the local Ollama runtime is CPU-bound, so selective use is recommended.
 When a drawing has no stored weld rows yet, or when some welds are still missing after parsing, the UI exposes a manual weld-intake flow so users can bulk-register weld IDs, skip already-existing IDs, and then continue with photos and progress events.
+Weld identity is scoped by `drawing_number + weld_id`, so `W01` may exist on multiple drawings without conflict while remaining unique inside each drawing.
 
 ## CLI Commands
 

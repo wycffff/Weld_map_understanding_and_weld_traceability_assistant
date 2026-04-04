@@ -73,6 +73,7 @@ Output: `StructuredDrawing`
 
 - Persist `StructuredDrawing` into the database.
 - Maintain `drawing`, `weld`, `bom_item`, and `review_queue`.
+- Treat weld identity as `drawing_number + weld_id`, not as a globally unique weld code.
 
 ### M8 Progress & Photo Linking
 
@@ -91,8 +92,9 @@ Output: `StructuredDrawing`
 
 - Upload drawings.
 - Display extraction results.
-- Show review queue items.
+- Show review queue items and allow resolve/reopen actions.
 - Manage weld status and evidence.
+- Support manual or bulk weld intake for missing weld rows on already-scanned drawings.
 - Download exported files.
 
 ## 3. Shared Data Flow
@@ -164,6 +166,6 @@ The current repository maps these concepts into:
 - `M7`: running with SQLite persistence for drawings, welds, BOM rows, and review items.
 - `M8`: now running for weld status updates, inspection updates, photo evidence uploads, and append-only event logging.
 - `M9`: running for JSON/CSV export, including stored traceability records.
-- `M10`: running as a Streamlit demo for upload, search, review, export, weld traceability actions, and manual/bulk weld intake when recognition misses one or more weld rows.
+- `M10`: running as a Streamlit demo for upload, search, review, export, weld traceability actions, review resolution, and manual/bulk weld intake when recognition misses one or more weld rows.
 
 This summary will evolve as implementation expands, but the OCR-first / review-first design rules above remain the stable baseline.

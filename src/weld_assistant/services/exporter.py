@@ -59,6 +59,7 @@ class RepositoryExporter:
         bom_items = self.repository.list_bom_items(drawing_number)
         progress_events = self.repository.list_weld_progress(drawing_number)
         photo_evidence = self.repository.list_photo_evidence(drawing_number)
+        review_queue = self.repository.list_review_queue(drawing_number, unresolved_only=False)
 
         json_path = self.output_dir / f"{drawing_number}.export.json"
         csv_path = self.output_dir / f"{drawing_number}.weld_progress.csv"
@@ -69,6 +70,7 @@ class RepositoryExporter:
             "bom": [dict(row) for row in bom_items],
             "progress_events": [dict(row) for row in progress_events],
             "photo_evidence": [dict(row) for row in photo_evidence],
+            "review_queue": [dict(row) for row in review_queue],
         }
         json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

@@ -104,12 +104,7 @@ def main() -> None:  # pragma: no cover
     if selected_drawing_number:
         render_traceability_workspace(st, repository, progress_service, selected_drawing_number)
 
-    st.subheader("Review queue")
-    reviews = repository.list_review_queue(selected_drawing_number or None)
-    if reviews:
-        st.dataframe([dict(row) for row in reviews])
-    else:
-        st.caption("No review items yet.")
+    render_review_queue_workspace(st, repository, progress_service, selected_drawing_number)
 
 
 def format_drawing_option(drawing_number: str, matches) -> str:
@@ -130,7 +125,9 @@ def render_traceability_workspace(st, repository: SQLiteRepository, progress_ser
     with manual_tab:
         st.caption(
             "Use this for drawings that are already scanned into the database but still miss some weld rows. "
-            "You can register one or many weld IDs, skip already-existing IDs, and for a single weld also attach the first photo immediately."
+            "Weld identity is scoped by drawing number, so the same weld ID can exist on another drawing. "
+            "Within the selected drawing, you can register one or many weld IDs, skip already-existing IDs, "
+            "and for a single weld also attach the first photo immediately."
         )
         if weld_rows:
             existing_ids = [row["weld_id"] for row in weld_rows]
@@ -306,6 +303,74 @@ def render_traceability_workspace(st, repository: SQLiteRepository, progress_ser
                 st.caption("No photos linked yet.")
 
 
+def render_review_queue_workspace(st, repository: SQLiteRepository, progress_service: ProgressService, drawing_number: str | None) -> None:
+    st.subheader("Review queue")
+    unresolved_only = st.checkbox(
+        "Show unresolved items only",
+        value=True,
+        key=f"review_unresolved_only_{drawing_number or 'all'}",
+    )
+    reviews = repository.list_review_queue(drawing_number, unresolved_only=unresolved_only)
+    if not reviews:
+        st.caption("No review items for the current filter.")
+        return
+
+    st.dataframe([summarize_review_row(row) for row in reviews], use_container_width=True)
+    selected_review_id = st.selectbox(
+        "Select review item",
+        options=[row["review_id"] for row in reviews],
+        format_func=lambda review_id: format_review_option(review_id, reviews),
+        key=f"review_select_{drawing_number or 'all'}",
+    )
+    selected_review = next(row for row in reviews if row["review_id"] == selected_review_id)
+    payload = json.loads(selected_review["payload_json"])
+
+    scope = selected_review["drawing_number"] or selected_review["document_id"]
+    if selected_review["weld_id"]:
+        scope = f"{scope}/{selected_review['weld_id']}"
+    st.caption(f"Review scope: {scope}")
+    st.json(payload)
+
+    operator = st.text_input("Review operator", key=f"review_operator_{selected_review_id}")
+    note = st.text_input("Review note", key=f"review_note_{selected_review_id}")
+    candidate_weld_ids = extract_review_candidate_weld_ids(selected_review, payload)
+    action_columns = st.columns(3)
+
+    if candidate_weld_ids and selected_review["drawing_number"]:
+        with action_columns[0]:
+            if st.button("Register candidate welds", key=f"review_register_{selected_review_id}"):
+                result = progress_service.register_welds(
+                    drawing_number=selected_review["drawing_number"],
+                    weld_ids=candidate_weld_ids,
+                    operator=operator.strip() or None,
+                    note=(note.strip() or None) or f"Accepted from review item {selected_review_id}.",
+                    skip_existing=True,
+                )
+                repository.resolve_review_item(selected_review_id)
+                st.success(
+                    f"Processed review item {selected_review_id}. "
+                    f"Created: {', '.join(result['created']) if result['created'] else 'none'}; "
+                    f"skipped existing: {', '.join(result['skipped_existing']) if result['skipped_existing'] else 'none'}."
+                )
+                st.rerun()
+        st.caption(
+            f"Candidate weld IDs for {selected_review['drawing_number']}: {', '.join(candidate_weld_ids)}"
+        )
+
+    if selected_review["resolved_at"]:
+        with action_columns[1]:
+            if st.button("Reopen review item", key=f"review_reopen_{selected_review_id}"):
+                repository.reopen_review_item(selected_review_id)
+                st.success(f"Reopened review item {selected_review_id}.")
+                st.rerun()
+    else:
+        with action_columns[1]:
+            if st.button("Mark resolved", key=f"review_resolve_{selected_review_id}"):
+                repository.resolve_review_item(selected_review_id)
+                st.success(f"Resolved review item {selected_review_id}.")
+                st.rerun()
+
+
 def unique_options(current_value: str | None, options: list[str]) -> list[str]:
     ordered = [current_value] if current_value else []
     ordered.extend(options)
@@ -327,6 +392,48 @@ def parse_manual_weld_ids(raw_value: str) -> list[str]:
         if normalized_value:
             normalized.append(normalized_value)
     return dedupe_preserve_order(normalized)
+
+
+def extract_review_candidate_weld_ids(review_row, payload: dict) -> list[str]:
+    candidates: list[str] = []
+    direct_values = [
+        review_row["weld_id"],
+        payload.get("ocr_value"),
+        payload.get("vlm_value"),
+    ]
+    for value in direct_values:
+        if not value:
+            continue
+        candidates.extend(parse_manual_weld_ids(str(value)))
+
+    evidence = payload.get("evidence") or {}
+    for value in evidence.get("vlm_weld_ids", []):
+        candidates.extend(parse_manual_weld_ids(str(value)))
+    for value in evidence.get("candidate_weld_ids", []):
+        candidates.extend(parse_manual_weld_ids(str(value)))
+    return dedupe_preserve_order(candidates)
+
+
+def summarize_review_row(row) -> dict[str, str | None]:
+    payload = json.loads(row["payload_json"])
+    return {
+        "review_id": row["review_id"],
+        "drawing_number": row["drawing_number"],
+        "weld_id": row["weld_id"],
+        "item_type": row["item_type"],
+        "field": payload.get("field"),
+        "message": payload.get("message"),
+        "resolved_at": row["resolved_at"],
+    }
+
+
+def format_review_option(review_id: str, reviews) -> str:
+    row = next(row for row in reviews if row["review_id"] == review_id)
+    scope = row["drawing_number"] or row["document_id"]
+    if row["weld_id"]:
+        scope = f"{scope}/{row['weld_id']}"
+    state = "resolved" if row["resolved_at"] else "open"
+    return f"{review_id} | {scope} | {row['item_type']} | {state}"
 
 
 def dedupe_preserve_order(values: list[str]) -> list[str]:

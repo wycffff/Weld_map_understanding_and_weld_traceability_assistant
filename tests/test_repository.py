@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from weld_assistant.config import AppConfig
-from weld_assistant.contracts import BOMItem, DrawingData, ProcessingLog, StructuredDrawing, WeldItem
+from weld_assistant.contracts import BOMItem, DrawingData, ProcessingLog, ReviewItem, StructuredDrawing, WeldItem
 from weld_assistant.db.repository import SQLiteRepository
 from weld_assistant.services.progress import ProgressService
 
@@ -141,6 +141,70 @@ class RepositoryTest(unittest.TestCase):
         self.assertEqual(repo.search_drawings("C52")[0]["drawing_number"], "C-52")
         self.assertEqual(repo.search_drawings("c-52")[0]["drawing_number"], "C-52")
         self.assertEqual(repo.search_drawings("22009")[0]["drawing_number"], "N-30-P-22009-AA1")
+
+    def test_weld_identity_is_scoped_by_drawing_and_review_items_can_be_resolved(self) -> None:
+        temp_root = Path("data/test_runs")
+        temp_root.mkdir(parents=True, exist_ok=True)
+        tmpdir = temp_root / f"repo_{uuid4().hex[:8]}"
+        tmpdir.mkdir(parents=True, exist_ok=True)
+        config = AppConfig.model_validate(
+            {
+                "pipeline": {"data_root": str(tmpdir)},
+                "database": {"path": str(tmpdir / "db" / "test.db")},
+            }
+        )
+        repo = SQLiteRepository(config)
+        repo.init_db()
+
+        structured_a = StructuredDrawing(
+            document_id="doc_scope_a",
+            drawing=DrawingData(drawing_number="DRAW-A", spool_name="DRAW-A"),
+            welds=[WeldItem(weld_id="W01", confidence=0.95)],
+            needs_review_items=[
+                ReviewItem(
+                    item_type="low_confidence",
+                    field="weld_id",
+                    roi_id="weld_label_01",
+                    ocr_value="W01",
+                    message="Review weld label W01",
+                )
+            ],
+            processing_log=ProcessingLog(
+                pipeline_version="0.1.0",
+                processed_at="2026-04-04T10:00:00+03:00",
+                layout_confidence="high",
+                ocr_engine="test",
+            ),
+        )
+        structured_b = StructuredDrawing(
+            document_id="doc_scope_b",
+            drawing=DrawingData(drawing_number="DRAW-B", spool_name="DRAW-B"),
+            welds=[WeldItem(weld_id="W01", confidence=0.94)],
+            processing_log=ProcessingLog(
+                pipeline_version="0.1.0",
+                processed_at="2026-04-04T10:01:00+03:00",
+                layout_confidence="high",
+                ocr_engine="test",
+            ),
+        )
+        repo.import_structured_drawing(structured_a)
+        repo.import_structured_drawing(structured_b)
+
+        self.assertIsNotNone(repo.get_weld("DRAW-A", "W01"))
+        self.assertIsNotNone(repo.get_weld("DRAW-B", "W01"))
+
+        open_reviews = repo.list_review_queue("DRAW-A", unresolved_only=True)
+        self.assertEqual(len(open_reviews), 1)
+
+        review_id = open_reviews[0]["review_id"]
+        repo.resolve_review_item(review_id)
+        resolved_review = repo.get_review_item(review_id)
+        self.assertIsNotNone(resolved_review)
+        self.assertIsNotNone(resolved_review["resolved_at"])
+        self.assertEqual(repo.list_review_queue("DRAW-A", unresolved_only=True), [])
+
+        repo.reopen_review_item(review_id)
+        self.assertEqual(len(repo.list_review_queue("DRAW-A", unresolved_only=True)), 1)
 
 
 if __name__ == "__main__":

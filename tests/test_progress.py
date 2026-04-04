@@ -162,6 +162,7 @@ class ProgressServiceTest(unittest.TestCase):
 
         self.assertEqual(len(export_payload["progress_events"]), 3)
         self.assertEqual(len(export_payload["photo_evidence"]), 1)
+        self.assertEqual(export_payload["review_queue"], [])
         self.assertEqual(csv_rows[0]["completed_by"], "alice")
         self.assertEqual(csv_rows[0]["inspection_status"], "accepted")
         self.assertEqual(csv_rows[0]["last_photo_id"], evidence.photo_id)

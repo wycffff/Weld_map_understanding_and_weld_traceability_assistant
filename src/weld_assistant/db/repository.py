@@ -247,16 +247,57 @@ class SQLiteRepository:
                 ).fetchall()
             return list(rows)
 
-    def list_review_queue(self, drawing_number: str | None = None) -> list[sqlite3.Row]:
+    def get_review_item(self, review_id: str) -> sqlite3.Row | None:
         with self.connect() as connection:
+            return connection.execute(
+                "SELECT * FROM review_queue WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+
+    def list_review_queue(self, drawing_number: str | None = None, unresolved_only: bool = False) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            filters: list[str] = []
+            values: list[str] = []
             if drawing_number:
-                rows = connection.execute(
-                    "SELECT * FROM review_queue WHERE drawing_number = ? ORDER BY created_at DESC",
-                    (drawing_number,),
-                ).fetchall()
-            else:
-                rows = connection.execute("SELECT * FROM review_queue ORDER BY created_at DESC").fetchall()
+                filters.append("drawing_number = ?")
+                values.append(drawing_number)
+            if unresolved_only:
+                filters.append("resolved_at IS NULL")
+            where_clause = f" WHERE {' AND '.join(filters)}" if filters else ""
+            query = f"SELECT * FROM review_queue{where_clause} ORDER BY created_at DESC"
+            rows = connection.execute(query, tuple(values)).fetchall()
             return list(rows)
+
+    def resolve_review_item(self, review_id: str) -> None:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE review_queue
+                SET resolved_at = ?
+                WHERE review_id = ? AND resolved_at IS NULL
+                """,
+                (datetime.now().astimezone().isoformat(), review_id),
+            )
+            if cursor.rowcount == 0:
+                review = connection.execute(
+                    "SELECT review_id FROM review_queue WHERE review_id = ?",
+                    (review_id,),
+                ).fetchone()
+                if not review:
+                    raise ValueError(f"Review item not found: {review_id}")
+
+    def reopen_review_item(self, review_id: str) -> None:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE review_queue
+                SET resolved_at = NULL
+                WHERE review_id = ?
+                """,
+                (review_id,),
+            )
+            if cursor.rowcount == 0:
+                raise ValueError(f"Review item not found: {review_id}")
 
     @staticmethod
     def _score_drawing_match(row: sqlite3.Row, raw_query: str, normalized_query: str) -> int:
