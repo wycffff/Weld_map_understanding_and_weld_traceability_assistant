@@ -226,7 +226,7 @@ class FusionEngine:
                         field="weld_id",
                         roi_id="weld_list",
                         message="Numeric weld identifiers were inferred from the welding-list grid and require review.",
-                        evidence=evidence,
+                        evidence={**evidence, "candidate_weld_ids": inferred_ids},
                     )
                 )
             for inferred_id in inferred_ids:
@@ -273,7 +273,7 @@ class FusionEngine:
                     roi_id="weld_list",
                     vlm_value=", ".join(added_by_vlm),
                     message="Additional weld identifiers were supplied by VLM and require review before acceptance.",
-                    evidence={"vlm_weld_ids": vlm_weld_ids},
+                    evidence={"vlm_weld_ids": vlm_weld_ids, "candidate_weld_ids": added_by_vlm},
                 )
             )
         return list(welds.values())

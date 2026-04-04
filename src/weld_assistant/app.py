@@ -50,6 +50,10 @@ def main() -> None:  # pragma: no cover
         "Local Ollama vision inference is currently CPU-bound on this machine, "
         "so VLM is best used selectively on hard cases instead of every batch by default."
     )
+    st.caption(
+        f"VLM timeouts: visual tasks={config.vlm.request_timeout_sec}s, "
+        f"review assistant default={config.vlm.review_request_timeout_sec}s"
+    )
 
     uploaded = st.file_uploader("Upload drawing", type=["png", "jpg", "jpeg", "webp"])
     persist = st.checkbox("Persist to database", value=True)
@@ -352,12 +356,24 @@ def render_review_queue_workspace(
     note = st.text_input("Review note", key=f"review_note_{selected_review_id}")
     candidate_weld_ids = heuristic["candidate_weld_ids"]
     action_columns = st.columns(3)
+    review_timeout_sec = int(
+        st.number_input(
+            "M5 review timeout (sec)",
+            min_value=30,
+            max_value=600,
+            value=configured_review_timeout_seconds(review_service),
+            step=30,
+            key=f"review_timeout_{selected_review_id}",
+            help="Use a longer timeout for very small local models on CPU if they are slow but eventually respond.",
+        )
+    )
 
     if st.button("Run M5 review assistant", key=f"review_assist_{selected_review_id}"):
-        with st.spinner("Running bounded M5 review assist..."):
+        with st.spinner(f"Running bounded M5 review assist (timeout {review_timeout_sec}s)..."):
             st.session_state[f"review_assist_result_{selected_review_id}"] = review_service.suggest_review_item(
                 selected_review_id,
                 use_llm=True,
+                timeout_override_sec=review_timeout_sec,
             )
         st.rerun()
 
@@ -366,6 +382,8 @@ def render_review_queue_workspace(
         llm_result = review_assist_result["llm"]
         if llm_result.get("error"):
             st.warning(f"M5 review assist failed: {llm_result['error']}")
+            if "timed out" in str(llm_result["error"]).lower():
+                st.caption("Tip: increase the review timeout above if the local model is slow but usually completes.")
         else:
             st.success(
                 f"M5 recommendation: {llm_result['recommended_action']} | "
@@ -454,6 +472,10 @@ def format_review_option(review_id: str, reviews) -> str:
         scope = f"{scope}/{row['weld_id']}"
     state = "resolved" if row["resolved_at"] else "open"
     return f"{review_id} | {scope} | {row['item_type']} | {state}"
+
+
+def configured_review_timeout_seconds(review_service: ReviewService) -> int:
+    return int(review_service.vlm_engine.config.vlm.review_request_timeout_sec)
 
 
 def dedupe_preserve_order(values: list[str]) -> list[str]:

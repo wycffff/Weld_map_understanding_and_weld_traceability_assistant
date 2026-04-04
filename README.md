@@ -180,6 +180,7 @@ VLM assistance is visible in the UI status banner and can be enabled per run. On
 When a drawing has no stored weld rows yet, or when some welds are still missing after parsing, the UI exposes a manual weld-intake flow so users can bulk-register weld IDs, skip already-existing IDs, and then continue with photos and progress events.
 Weld identity is scoped by `drawing_number + weld_id`, so `W01` may exist on multiple drawings without conflict while remaining unique inside each drawing.
 The review assistant now uses a hard timeout for local Ollama calls so difficult requests fail fast instead of blocking the UI indefinitely.
+The review-assistant timeout is separate from visual VLM tasks and can be raised in the UI up to 600 seconds for slow local CPU runs.
 
 ## CLI Commands
 
@@ -205,6 +206,7 @@ Important fields:
 - `vlm.max_tasks_per_document`: cap VLM task count per drawing
 - `vlm.max_output_tokens`: limit local Ollama output size per task
 - `vlm.request_timeout_sec`: hard timeout for each bounded Ollama call
+- `vlm.review_request_timeout_sec`: default timeout for the text-only review assistant
 - `database.path`: SQLite database path
 - `export.output_dir`: export directory
 

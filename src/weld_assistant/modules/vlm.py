@@ -84,6 +84,7 @@ class VLMEngine:
             messages=[{"role": "user", "content": prompt, "images": [roi_path]}],
             schema=schema,
             max_output_tokens=self.config.vlm.max_output_tokens,
+            timeout_sec=self.config.vlm.request_timeout_sec,
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
         output_json = json.loads(response["message"]["content"])
@@ -98,12 +99,19 @@ class VLMEngine:
         )
 
     def assist_review(self, review_context: dict[str, Any]) -> VLMTaskResult:
+        return self.assist_review_with_timeout(
+            review_context=review_context,
+            timeout_sec=self.config.vlm.review_request_timeout_sec,
+        )
+
+    def assist_review_with_timeout(self, review_context: dict[str, Any], timeout_sec: int) -> VLMTaskResult:
         prompt = build_prompt("review_assist", {"review_context": review_context})
         started = time.perf_counter()
         response = self._chat(
             messages=[{"role": "user", "content": prompt}],
             schema=TASK_SCHEMAS["review_assist"],
             max_output_tokens=max(self.config.vlm.max_output_tokens, 128),
+            timeout_sec=timeout_sec,
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
         output_json = json.loads(response["message"]["content"])
@@ -143,7 +151,7 @@ class VLMEngine:
         write_json(self.output_dir / f"{layout.document_id}.json", result.model_dump(mode="json"))
         return result
 
-    def _chat(self, messages: list[dict[str, Any]], schema: dict[str, Any], max_output_tokens: int):
+    def _chat(self, messages: list[dict[str, Any]], schema: dict[str, Any], max_output_tokens: int, timeout_sec: int):
         kwargs = {
             "model": self.config.vlm.model,
             "messages": messages,
@@ -169,12 +177,12 @@ class VLMEngine:
                 input=json.dumps(kwargs, ensure_ascii=False),
                 text=True,
                 capture_output=True,
-                timeout=self.config.vlm.request_timeout_sec,
+                timeout=timeout_sec,
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
             raise TimeoutError(
-                f"Ollama request timed out after {self.config.vlm.request_timeout_sec}s for model {self.config.vlm.model}"
+                f"Ollama request timed out after {timeout_sec}s for model {self.config.vlm.model}"
             ) from exc
         if completed.returncode != 0:
             raise RuntimeError(

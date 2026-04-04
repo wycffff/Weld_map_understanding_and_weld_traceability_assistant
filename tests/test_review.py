@@ -118,6 +118,64 @@ class ReviewServiceTest(unittest.TestCase):
         self.assertEqual(suggestion["final"]["candidate_weld_ids"], ["W02"])
         self.assertEqual(suggestion["final"]["model_latency_ms"], 321)
 
+    def test_timeout_override_is_forwarded_to_review_assistant(self) -> None:
+        temp_root = Path("data/test_runs")
+        temp_root.mkdir(parents=True, exist_ok=True)
+        tmpdir = temp_root / f"review_{uuid4().hex[:8]}"
+        tmpdir.mkdir(parents=True, exist_ok=True)
+        config = AppConfig.model_validate(
+            {
+                "pipeline": {"data_root": str(tmpdir)},
+                "database": {"path": str(tmpdir / "db" / "test.db")},
+            }
+        )
+        repo = SQLiteRepository(config)
+        repo.init_db()
+
+        structured = StructuredDrawing(
+            document_id="doc_review_003",
+            drawing=DrawingData(drawing_number="DRAW-REVIEW-3", spool_name="DRAW-REVIEW-3"),
+            needs_review_items=[
+                ReviewItem(
+                    item_type="weld_ids_from_vlm",
+                    field="weld_id",
+                    roi_id="weld_list",
+                    vlm_value="W02",
+                    message="Review the candidate weld.",
+                    evidence={"vlm_weld_ids": ["W02"]},
+                )
+            ],
+            processing_log=ProcessingLog(
+                pipeline_version="0.1.0",
+                processed_at="2026-04-04T10:00:00+03:00",
+                layout_confidence="high",
+                ocr_engine="test",
+            ),
+        )
+        repo.import_structured_drawing(structured)
+        review_id = repo.list_review_queue("DRAW-REVIEW-3", unresolved_only=True)[0]["review_id"]
+
+        mock_vlm = Mock()
+        mock_vlm.assist_review_with_timeout.return_value = VLMTaskResult(
+            task_type="review_assist",
+            roi_id=review_id,
+            output_json={
+                "summary": "Use W02 only.",
+                "recommended_action": "register_welds",
+                "candidate_weld_ids": ["W02"],
+                "notes": "",
+                "confidence": 0.51,
+            },
+            latency_ms=222,
+        )
+        service = ReviewService(repo, mock_vlm)
+
+        suggestion = service.suggest_review_item(review_id, use_llm=True, timeout_override_sec=240)
+
+        mock_vlm.assist_review_with_timeout.assert_called_once()
+        self.assertEqual(mock_vlm.assist_review_with_timeout.call_args.args[1], 240)
+        self.assertEqual(suggestion["llm"]["candidate_weld_ids"], ["W02"])
+
 
 if __name__ == "__main__":
     unittest.main()

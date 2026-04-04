@@ -47,6 +47,7 @@ class VlmSection(BaseModel):
     max_tasks_per_document: int = 3
     max_output_tokens: int = 96
     request_timeout_sec: int = 30
+    review_request_timeout_sec: int = 180
 
 
 class FusionSection(BaseModel):

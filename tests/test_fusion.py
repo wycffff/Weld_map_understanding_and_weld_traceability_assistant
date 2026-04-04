@@ -163,7 +163,8 @@ class FusionEngineTest(unittest.TestCase):
 
         self.assertEqual([weld.weld_id for weld in structured.welds], ["1", "2", "3", "4", "5"])
         self.assertTrue(all(weld.needs_review for weld in structured.welds))
-        self.assertIn("numeric_weld_ids_inferred", [item.item_type for item in structured.needs_review_items])
+        review_item = next(item for item in structured.needs_review_items if item.item_type == "numeric_weld_ids_inferred")
+        self.assertEqual(review_item.evidence["candidate_weld_ids"], ["1", "2", "3", "4", "5"])
 
     def test_build_bom_item_uses_unmapped_columns_and_split_tag_text(self) -> None:
         drawing = DrawingData(drawing_number="C-52")
@@ -276,7 +277,8 @@ class FusionEngineTest(unittest.TestCase):
 
         self.assertEqual([weld.weld_id for weld in structured.welds], ["1", "2", "3"])
         self.assertTrue(all(weld.provenance.vlm_used for weld in structured.welds))
-        self.assertIn("weld_ids_from_vlm", [item.item_type for item in structured.needs_review_items])
+        review_item = next(item for item in structured.needs_review_items if item.item_type == "weld_ids_from_vlm")
+        self.assertEqual(review_item.evidence["candidate_weld_ids"], ["1", "2", "3"])
 
 
 if __name__ == "__main__":

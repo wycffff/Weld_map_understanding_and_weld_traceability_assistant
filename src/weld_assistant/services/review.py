@@ -22,7 +22,12 @@ class ReviewService:
         self.repository = repository
         self.vlm_engine = vlm_engine
 
-    def suggest_review_item(self, review_id: str, use_llm: bool = False) -> dict[str, Any]:
+    def suggest_review_item(
+        self,
+        review_id: str,
+        use_llm: bool = False,
+        timeout_override_sec: int | None = None,
+    ) -> dict[str, Any]:
         context = self.build_review_context(review_id)
         heuristic = build_heuristic_review_suggestion(context)
         result: dict[str, Any] = {
@@ -36,7 +41,10 @@ class ReviewService:
             return result
 
         try:
-            llm_task = self.vlm_engine.assist_review(context)
+            if timeout_override_sec is None:
+                llm_task = self.vlm_engine.assist_review(context)
+            else:
+                llm_task = self.vlm_engine.assist_review_with_timeout(context, timeout_override_sec)
         except Exception as exc:
             result["llm"] = {"error": str(exc)}
             return result

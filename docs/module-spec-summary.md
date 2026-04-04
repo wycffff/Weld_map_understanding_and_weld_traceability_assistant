@@ -161,7 +161,7 @@ The current repository maps these concepts into:
 ## 7. Current Implementation Status
 
 - `M1` to `M4`: running in the main pipeline.
-- `M5`: implemented as an optional Ollama-backed helper and now wired into fusion for title-block fallback, weld-list assistance, weld-location descriptions, and review-queue guidance. The current prompts are intentionally short and ROI-bounded so the small local model stays usable. It remains disabled by default for full runs because the current local Ollama runtime is CPU-bound, and each bounded call now uses a hard timeout.
+- `M5`: implemented as an optional Ollama-backed helper and now wired into fusion for title-block fallback, weld-list assistance, weld-location descriptions, and review-queue guidance. The current prompts are intentionally short and ROI-bounded so the small local model stays usable. It remains disabled by default for full runs because the current local Ollama runtime is CPU-bound, and each bounded call now uses a hard timeout. The review assistant uses a separate longer timeout and the UI can raise it further for very slow local inference.
 - `M6`: running with OCR-first fusion and review-first conflict handling.
 - `M7`: running with SQLite persistence for drawings, welds, BOM rows, and review items.
 - `M8`: now running for weld status updates, inspection updates, photo evidence uploads, and append-only event logging.
