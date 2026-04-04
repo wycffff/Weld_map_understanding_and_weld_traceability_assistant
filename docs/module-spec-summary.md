@@ -159,7 +159,7 @@ The current repository maps these concepts into:
 ## 7. Current Implementation Status
 
 - `M1` to `M4`: running in the main pipeline.
-- `M5`: implemented as an optional Ollama-backed helper, but disabled by default in `config/config.yaml`.
+- `M5`: implemented as an optional Ollama-backed helper and now wired into fusion for title-block fallback, weld-list assistance, and weld-location descriptions. It remains disabled by default for full runs because the current local Ollama runtime is CPU-bound.
 - `M6`: running with OCR-first fusion and review-first conflict handling.
 - `M7`: running with SQLite persistence for drawings, welds, BOM rows, and review items.
 - `M8`: now running for weld status updates, inspection updates, photo evidence uploads, and append-only event logging.

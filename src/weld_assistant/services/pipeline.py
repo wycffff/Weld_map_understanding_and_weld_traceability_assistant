@@ -44,6 +44,7 @@ class PipelineService:
         metadata: dict | None = None,
         persist: bool = False,
         overwrite: bool = False,
+        use_vlm: bool | None = None,
     ) -> StructuredDrawing:
         path = Path(input_path)
         input_doc = self.loader.load(
@@ -59,7 +60,7 @@ class PipelineService:
         layout_plan = self.region_planner.plan(preprocessed, ocr_preview=ocr_result)
         ocr_result = ocr_engine.extract_layout(preprocessed, layout_plan)
 
-        vlm_result = self.vlm.analyze_layout(layout_plan)
+        vlm_result = self.vlm.analyze_layout(layout_plan, ocr_result=ocr_result, enabled=use_vlm)
         structured = self.fusion.merge(layout_plan, ocr_result, vlm_result)
 
         final_dir = ensure_dir(Path(self.config.pipeline.data_root) / "final")

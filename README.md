@@ -55,6 +55,7 @@ Implemented today:
 - Manual ROI flow with profile-based layout selection.
 - OCR adapters with `RapidOCR` as the default local path and `PaddleOCR` retained as an optional adapter.
 - Fusion logic for drawing fields, weld identifiers, and partially normalized BOM extraction.
+- Bounded M5 integration for title-block fallback, weld-list assistance, and weld-location descriptions.
 - SQLite repository, review queue persistence, and export services.
 - Traceability actions for weld status, inspection status, photo evidence, and append-only event history.
 - Streamlit demo UI.
@@ -76,7 +77,7 @@ See [docs/sample-profile-analysis.md](docs/sample-profile-analysis.md) for the c
 - `M2` Preprocessing: running
 - `M3` Layout & ROI Planner: running with manual templates and profile-based selection; auto mode is still limited
 - `M4` OCR Extraction: running with `RapidOCR` by default
-- `M5` VLM Understanding: scaffolded and callable, but disabled by default in `config/config.yaml`
+- `M5` VLM Understanding: integrated as bounded assistance for title-block fallback, weld-list extraction, and weld-location descriptions; still disabled by default for full runs because the current local Ollama runtime is CPU-bound
 - `M6` Fusion & Parsing: running with OCR-first / review-first rules
 - `M7` Traceability Data Model: running on SQLite
 - `M8` Progress & Photo Linking: running for status updates, inspection updates, photo uploads, and event logging
@@ -161,6 +162,7 @@ streamlit run app.py
 The web UI supports:
 
 - Uploading and processing a new drawing.
+- Choosing whether to use VLM assistance for a specific run.
 - Previewing generated ROIs.
 - Searching existing reports by drawing number, spool name, or document ID.
 - Updating weld status and inspection status.
@@ -170,7 +172,7 @@ The web UI supports:
 - Reviewing unresolved items from the review queue.
 
 Search is normalized so queries like `C52`, `c-52`, or partial drawing fragments can still return matches.
-VLM assistance is visible in the UI status banner and is currently disabled by default.
+VLM assistance is visible in the UI status banner and can be enabled per run. On the current machine the local Ollama runtime is CPU-bound, so selective use is recommended.
 
 ## CLI Commands
 
@@ -179,6 +181,8 @@ VLM assistance is visible in the UI status banner and is currently disabled by d
 - `init-db`: initialize SQLite schema
 - `export`: export stored JSON and CSV for a drawing
 - `write-schema`: write the current JSON schema to disk
+
+`parse` and `parse-batch` also support `--use-vlm` for selective M5 runs.
 
 ## Configuration
 
@@ -190,6 +194,9 @@ Important fields:
 - `layout.weld_id_pattern`: weld ID regex
 - `ocr.engine`: default OCR engine
 - `vlm.enabled`: enable or disable VLM assistance
+- `vlm.mode`: `review_only | always`
+- `vlm.max_tasks_per_document`: cap VLM task count per drawing
+- `vlm.max_output_tokens`: limit local Ollama output size per task
 - `database.path`: SQLite database path
 - `export.output_dir`: export directory
 

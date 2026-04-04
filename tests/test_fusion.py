@@ -206,6 +206,78 @@ class FusionEngineTest(unittest.TestCase):
         self.assertIsNone(item.qty)
         self.assertIn("missing_qty", issues)
 
+    def test_merge_uses_vlm_titleblock_fallback_when_ocr_missing(self) -> None:
+        config = AppConfig()
+        engine = FusionEngine(config)
+        layout = LayoutPlan(
+            document_id="doc_test_0004",
+            rois=[ROI(roi_id="titleblock", type="roi_titleblock", bbox=[0, 0, 10, 10], image_path="titleblock.png")],
+            layout_log={"layout_confidence": "high"},
+        )
+        ocr = OCRResult(
+            document_id="doc_test_0004",
+            engine="test",
+            tokens=[OCRToken(text="DRAWINGNO", bbox=[0, 0, 10, 10], confidence=0.61, roi_id="titleblock")],
+            tables=[],
+        )
+        vlm = VLMResult(
+            document_id="doc_test_0004",
+            model="qwen3.5:0.8b",
+            tasks=[
+                VLMTaskResult(
+                    task_type="drawing_title_extract",
+                    roi_id="titleblock",
+                    output_json={
+                        "drawing_number": "C-52",
+                        "pipe_size": '4"',
+                        "material_spec": "ASTM A106 GR B",
+                        "spool_name": "52",
+                        "project_number": "PRJ-01",
+                    },
+                )
+            ],
+        )
+
+        structured = engine.merge(layout, ocr, vlm)
+
+        self.assertEqual(structured.drawing.drawing_number, "C-52")
+        self.assertEqual(structured.drawing.pipe_size, '4"')
+        self.assertEqual(structured.drawing.material_spec, "ASTM A106 GR B")
+        self.assertEqual(structured.drawing.project_number, "PRJ-01")
+        self.assertIn("drawing_number_from_vlm", [item.item_type for item in structured.needs_review_items])
+
+    def test_merge_adds_vlm_weld_ids_when_ocr_has_none(self) -> None:
+        config = AppConfig()
+        engine = FusionEngine(config)
+        layout = LayoutPlan(
+            document_id="doc_test_0005",
+            rois=[ROI(roi_id="weld_list", type="roi_bom_table", bbox=[0, 0, 10, 10])],
+            layout_log={"layout_confidence": "high", "document_profile": "welding_map_sheet"},
+        )
+        ocr = OCRResult(
+            document_id="doc_test_0005",
+            engine="test",
+            tokens=[],
+            tables=[],
+        )
+        vlm = VLMResult(
+            document_id="doc_test_0005",
+            model="qwen3.5:0.8b",
+            tasks=[
+                VLMTaskResult(
+                    task_type="weld_list_extract",
+                    roi_id="weld_list",
+                    output_json={"weld_ids": ["1", "2", "3"], "notes": "numeric list"},
+                )
+            ],
+        )
+
+        structured = engine.merge(layout, ocr, vlm)
+
+        self.assertEqual([weld.weld_id for weld in structured.welds], ["1", "2", "3"])
+        self.assertTrue(all(weld.provenance.vlm_used for weld in structured.welds))
+        self.assertIn("weld_ids_from_vlm", [item.item_type for item in structured.needs_review_items])
+
 
 if __name__ == "__main__":
     unittest.main()

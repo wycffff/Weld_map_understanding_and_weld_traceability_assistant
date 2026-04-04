@@ -43,6 +43,9 @@ class VlmSection(BaseModel):
     temperature: float = 0
     num_ctx: int = 4096
     max_retries: int = 2
+    mode: str = "review_only"
+    max_tasks_per_document: int = 3
+    max_output_tokens: int = 96
 
 
 class FusionSection(BaseModel):
@@ -86,4 +89,3 @@ def load_config(config_path: str | Path = "config/config.yaml") -> AppConfig:
     with path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     return AppConfig.model_validate(data)
-

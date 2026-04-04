@@ -20,12 +20,14 @@ def build_parser() -> argparse.ArgumentParser:
     parse_cmd.add_argument("--output")
     parse_cmd.add_argument("--persist", action="store_true")
     parse_cmd.add_argument("--overwrite", action="store_true")
+    parse_cmd.add_argument("--use-vlm", action="store_true")
 
     parse_batch_cmd = subparsers.add_parser("parse-batch")
     parse_batch_cmd.add_argument("--input-dir", required=True)
     parse_batch_cmd.add_argument("--output", default="data/final/batch_summary.json")
     parse_batch_cmd.add_argument("--persist", action="store_true")
     parse_batch_cmd.add_argument("--overwrite", action="store_true")
+    parse_batch_cmd.add_argument("--use-vlm", action="store_true")
 
     init_db_cmd = subparsers.add_parser("init-db")
 
@@ -46,7 +48,12 @@ def main() -> None:
     pipeline = PipelineService(config)
 
     if args.command == "parse":
-        structured = pipeline.process_file(args.input, persist=args.persist, overwrite=args.overwrite)
+        structured = pipeline.process_file(
+            args.input,
+            persist=args.persist,
+            overwrite=args.overwrite,
+            use_vlm=args.use_vlm,
+        )
         payload = structured.to_jsonable()
         if args.output:
             Path(args.output).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -59,7 +66,12 @@ def main() -> None:
         files = [path for path in sorted(input_dir.iterdir()) if path.is_file()]
         summary: list[dict[str, object]] = []
         for path in files:
-            structured = pipeline.process_file(path, persist=args.persist, overwrite=args.overwrite)
+            structured = pipeline.process_file(
+                path,
+                persist=args.persist,
+                overwrite=args.overwrite,
+                use_vlm=args.use_vlm,
+            )
             summary.append(
                 {
                     "input_file": str(path),

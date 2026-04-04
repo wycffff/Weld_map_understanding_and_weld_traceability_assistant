@@ -39,6 +39,9 @@ vlm:
   temperature: 0
   num_ctx: 4096
   max_retries: 2
+  mode: "review_only"
+  max_tasks_per_document: 3
+  max_output_tokens: 96
 
 fusion:
   ocr_primary_confidence_threshold: 0.8

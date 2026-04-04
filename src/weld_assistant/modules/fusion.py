@@ -26,7 +26,7 @@ class FusionEngine:
 
     def merge(self, layout: LayoutPlan, ocr: OCRResult, vlm: VLMResult | None = None) -> StructuredDrawing:
         review_items: list[ReviewItem] = []
-        drawing = self._extract_drawing(ocr, review_items)
+        drawing = self._extract_drawing(ocr, vlm, review_items)
         bom_items = self._extract_bom(ocr, drawing, review_items)
         welds = self._extract_welds(layout, ocr, vlm, review_items)
 
@@ -56,7 +56,7 @@ class FusionEngine:
             ),
         )
 
-    def _extract_drawing(self, ocr: OCRResult, review_items: list[ReviewItem]) -> DrawingData:
+    def _extract_drawing(self, ocr: OCRResult, vlm: VLMResult | None, review_items: list[ReviewItem]) -> DrawingData:
         title_tokens = [token for token in ocr.tokens if token.roi_id.startswith("titleblock")]
         note_tokens = [token for token in ocr.tokens if token.roi_id.startswith("note")]
         all_text = [token.text for token in title_tokens + note_tokens]
@@ -64,6 +64,13 @@ class FusionEngine:
         drawing_number = extract_drawing_number(all_text)
         pipe_size = normalize_pipe_size(all_text)
         material_spec = normalize_material_spec(first_match(all_text, r"ASTM[A-Z0-9 .-]+") or first_match(all_text, r"ASTM\s+[A-Z0-9 .-]+"))
+        vlm_title = first_vlm_task(vlm, "drawing_title_extract")
+        vlm_payload = vlm_title.output_json if vlm_title and vlm_title.schema_valid else {}
+        vlm_drawing_number = normalize_drawing_number(stringify_vlm_value(vlm_payload.get("drawing_number")))
+        vlm_pipe_size = stringify_vlm_value(vlm_payload.get("pipe_size"))
+        vlm_material_spec = normalize_material_spec(stringify_vlm_value(vlm_payload.get("material_spec")))
+        vlm_project_number = stringify_vlm_value(vlm_payload.get("project_number"))
+        vlm_spool_name = stringify_vlm_value(vlm_payload.get("spool_name"))
 
         for token in title_tokens:
             if token.confidence < 0.7:
@@ -78,12 +85,46 @@ class FusionEngine:
                     )
                 )
 
+        if drawing_number and vlm_drawing_number and drawing_number != vlm_drawing_number:
+            review_items.append(
+                ReviewItem(
+                    item_type="ocr_vlm_conflict",
+                    field="drawing_number",
+                    roi_id=vlm_title.roi_id if vlm_title else None,
+                    ocr_value=drawing_number,
+                    vlm_value=vlm_drawing_number,
+                    message="OCR and VLM disagree on drawing_number; OCR remains primary.",
+                    evidence={"ocr_tokens": all_text[:20], "vlm_payload": vlm_payload},
+                )
+            )
+
+        if not drawing_number and vlm_drawing_number:
+            review_items.append(
+                ReviewItem(
+                    item_type="drawing_number_from_vlm",
+                    field="drawing_number",
+                    roi_id=vlm_title.roi_id if vlm_title else None,
+                    vlm_value=vlm_drawing_number,
+                    message="drawing_number was filled from VLM because OCR did not produce a confident value.",
+                    evidence={"vlm_payload": vlm_payload},
+                )
+            )
+            drawing_number = vlm_drawing_number
+
+        if not pipe_size and vlm_pipe_size:
+            pipe_size = vlm_pipe_size
+        if not material_spec and vlm_material_spec:
+            material_spec = vlm_material_spec
+
         spool_name = drawing_number.split("-", 1)[-1] if drawing_number and "-" in drawing_number else drawing_number
+        if not spool_name and vlm_spool_name:
+            spool_name = vlm_spool_name
         return DrawingData(
             drawing_number=drawing_number,
             spool_name=spool_name,
             pipe_size=pipe_size,
             material_spec=material_spec,
+            project_number=vlm_project_number,
         )
 
     def _extract_bom(self, ocr: OCRResult, drawing: DrawingData, review_items: list[ReviewItem]) -> list[BOMItem]:
@@ -131,6 +172,7 @@ class FusionEngine:
             for task in (vlm.tasks if vlm else [])
             if task.task_type == "weld_location_describe" and task.schema_valid
         }
+        vlm_weld_ids = extract_vlm_weld_ids(vlm)
         welds: dict[str, WeldItem] = {}
         for token in ocr.tokens:
             candidate = normalize_weld_id(token.text)
@@ -203,6 +245,37 @@ class FusionEngine:
                         correction_applied=False,
                     ),
                 )
+
+        added_by_vlm: list[str] = []
+        for vlm_id in vlm_weld_ids:
+            if vlm_id in welds:
+                continue
+            welds[vlm_id] = WeldItem(
+                weld_id=vlm_id,
+                location_description=location_map.get(vlm_id.upper()),
+                confidence=0.0,
+                needs_review=True,
+                provenance=WeldProvenance(
+                    ocr_token_bbox=None,
+                    roi_id="weld_list_vlm",
+                    ocr_confidence=None,
+                    vlm_used=True,
+                    correction_applied=False,
+                ),
+            )
+            added_by_vlm.append(vlm_id)
+
+        if added_by_vlm:
+            review_items.append(
+                ReviewItem(
+                    item_type="weld_ids_from_vlm",
+                    field="weld_id",
+                    roi_id="weld_list",
+                    vlm_value=", ".join(added_by_vlm),
+                    message="Additional weld identifiers were supplied by VLM and require review before acceptance.",
+                    evidence={"vlm_weld_ids": vlm_weld_ids},
+                )
+            )
         return list(welds.values())
 
 
@@ -223,6 +296,58 @@ def first_match(values: Iterable[str], pattern: str) -> str | None:
         if match:
             return match.group(0)
     return None
+
+
+def first_vlm_task(vlm: VLMResult | None, task_type: str):
+    if not vlm:
+        return None
+    return next((task for task in vlm.tasks if task.task_type == task_type), None)
+
+
+def stringify_vlm_value(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def extract_vlm_weld_ids(vlm: VLMResult | None) -> list[str]:
+    if not vlm:
+        return []
+
+    candidates: list[str] = []
+    for task in vlm.tasks:
+        if task.task_type != "weld_list_extract" or not task.schema_valid:
+            continue
+        for raw_value in task.output_json.get("weld_ids", []):
+            normalized = normalize_weld_id_or_numeric(raw_value)
+            if normalized:
+                candidates.append(normalized)
+    return dedupe_preserve_order(candidates)
+
+
+def normalize_weld_id_or_numeric(value) -> str | None:
+    text = stringify_vlm_value(value)
+    if not text:
+        return None
+    normalized_weld = normalize_weld_id(text)
+    if normalized_weld:
+        return normalized_weld
+    compact = text.replace(" ", "").replace("-", "")
+    if compact.isdigit() and len(compact) <= 4:
+        return str(int(compact))
+    return None
+
+
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def map_bom_table(cells) -> tuple[list[dict], dict[int, str]]:

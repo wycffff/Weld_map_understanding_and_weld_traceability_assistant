@@ -31,7 +31,8 @@ def main() -> None:  # pragma: no cover
     st.title("Weld Traceability Assistant")
     st.caption(
         f"OCR engine: {config.ocr.engine} | "
-        f"VLM: {'enabled' if config.vlm.enabled else 'disabled'} ({config.vlm.model})"
+        f"VLM default: {'enabled' if config.vlm.enabled else 'disabled'} "
+        f"({config.vlm.model}, mode={config.vlm.mode})"
     )
 
     warnings = pipeline.validate_runtime()
@@ -39,12 +40,26 @@ def main() -> None:  # pragma: no cover
         st.warning(warning)
     if not config.vlm.enabled:
         st.info(
-            "VLM assistance is currently disabled in config/config.yaml. "
-            "The main pipeline is running in OCR-first mode."
+            "VLM assistance is disabled by default in config/config.yaml. "
+            "You can still turn it on per run below. OCR remains the primary source of truth."
         )
+    st.warning(
+        "Local Ollama vision inference is currently CPU-bound on this machine, "
+        "so VLM is best used selectively on hard cases instead of every batch by default."
+    )
 
     uploaded = st.file_uploader("Upload drawing", type=["png", "jpg", "jpeg", "webp"])
     persist = st.checkbox("Persist to database", value=True)
+    use_vlm = st.checkbox(
+        "Use VLM assistance for this run",
+        value=config.vlm.enabled,
+        help="Recommended only for hard drawings or review-heavy cases on the current CPU-only Ollama runtime.",
+    )
+    if use_vlm:
+        st.caption(
+            f"VLM run settings: model={config.vlm.model}, mode={config.vlm.mode}, "
+            f"max_tasks={config.vlm.max_tasks_per_document}"
+        )
 
     if uploaded and st.button("Run pipeline"):
         temp_dir = Path(config.pipeline.data_root) / "ui_uploads"
@@ -52,7 +67,7 @@ def main() -> None:  # pragma: no cover
         temp_path = temp_dir / uploaded.name
         temp_path.write_bytes(uploaded.getvalue())
         with st.spinner("Processing drawing..."):
-            structured = pipeline.process_file(temp_path, persist=persist, overwrite=True)
+            structured = pipeline.process_file(temp_path, persist=persist, overwrite=True, use_vlm=use_vlm)
         st.success("Pipeline finished.")
         st.subheader("StructuredDrawing")
         st.json(structured.to_jsonable())

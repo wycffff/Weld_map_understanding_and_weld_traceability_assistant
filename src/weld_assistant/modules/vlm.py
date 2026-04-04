@@ -8,7 +8,7 @@ from typing import Any
 import ollama
 
 from weld_assistant.config import AppConfig
-from weld_assistant.contracts import LayoutPlan, VLMResult, VLMTaskResult
+from weld_assistant.contracts import LayoutPlan, OCRResult, VLMResult, VLMTaskResult
 from weld_assistant.utils.files import ensure_dir, write_json
 
 
@@ -31,6 +31,28 @@ TASK_SCHEMAS: dict[str, dict[str, Any]] = {
         "properties": {"selected": {"type": "string"}, "reasoning": {"type": "string"}},
         "required": ["selected", "reasoning"],
     },
+    "drawing_title_extract": {
+        "type": "object",
+        "properties": {
+            "drawing_number": {"type": "string"},
+            "pipe_size": {"type": "string"},
+            "material_spec": {"type": "string"},
+            "project_number": {"type": "string"},
+            "spool_name": {"type": "string"},
+        },
+        "required": ["drawing_number"],
+    },
+    "weld_list_extract": {
+        "type": "object",
+        "properties": {
+            "weld_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "notes": {"type": "string"},
+        },
+        "required": ["weld_ids"],
+    },
 }
 
 
@@ -45,7 +67,11 @@ class VLMEngine:
         response = ollama.chat(
             model=self.config.vlm.model,
             messages=[{"role": "user", "content": prompt, "images": [roi_path]}],
-            options={"temperature": self.config.vlm.temperature, "num_ctx": self.config.vlm.num_ctx},
+            options={
+                "temperature": self.config.vlm.temperature,
+                "num_ctx": self.config.vlm.num_ctx,
+                "num_predict": self.config.vlm.max_output_tokens,
+            },
             format=schema,
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
@@ -60,26 +86,85 @@ class VLMEngine:
             latency_ms=latency_ms,
         )
 
-    def analyze_layout(self, layout: LayoutPlan) -> VLMResult:
-        if not self.config.vlm.enabled:
+    def analyze_layout(
+        self,
+        layout: LayoutPlan,
+        ocr_result: OCRResult | None = None,
+        enabled: bool | None = None,
+    ) -> VLMResult:
+        use_vlm = self.config.vlm.enabled if enabled is None else enabled
+        if not use_vlm:
             return VLMResult(document_id=layout.document_id, model=self.config.vlm.model, tasks=[])
 
         tasks: list[VLMTaskResult] = []
-        for roi in layout.rois:
-            if roi.type != "roi_weld_label" or not roi.image_path:
+        queued = 0
+        for task_type, roi, options in self._build_task_plan(layout, ocr_result):
+            if queued >= self.config.vlm.max_tasks_per_document:
+                break
+            if not roi.image_path:
                 continue
-            tasks.append(
-                self.analyze(
-                    roi.image_path,
-                    "weld_location_describe",
-                    TASK_SCHEMAS["weld_location_describe"],
-                    {"roi_id": roi.roi_id, "weld_hint": roi.weld_hint or ""},
-                )
-            )
+            try:
+                tasks.append(self.analyze(roi.image_path, task_type, TASK_SCHEMAS[task_type], options))
+                queued += 1
+            except Exception:
+                continue
 
         result = VLMResult(document_id=layout.document_id, model=self.config.vlm.model, tasks=tasks)
         write_json(self.output_dir / f"{layout.document_id}.json", result.model_dump(mode="json"))
         return result
+
+    def _build_task_plan(self, layout: LayoutPlan, ocr_result: OCRResult | None) -> list[tuple[str, Any, dict[str, Any]]]:
+        mode = self.config.vlm.mode
+        profile = str(layout.layout_log.get("document_profile", ""))
+        task_plan: list[tuple[str, Any, dict[str, Any]]] = []
+
+        title_tokens = [token for token in (ocr_result.tokens if ocr_result else []) if token.roi_id.startswith("titleblock")]
+        has_low_conf_titleblock = any(token.confidence < 0.72 for token in title_tokens)
+        if mode == "always" or has_low_conf_titleblock or not title_tokens:
+            titleblock_roi = next((roi for roi in layout.rois if roi.type == "roi_titleblock" and roi.image_path), None)
+            if titleblock_roi:
+                task_plan.append(
+                    (
+                        "drawing_title_extract",
+                        titleblock_roi,
+                        {
+                            "roi_id": titleblock_roi.roi_id,
+                            "ocr_preview": [token.text for token in title_tokens[:20]],
+                        },
+                    )
+                )
+
+        if profile == "welding_map_sheet":
+            weld_list_roi = next((roi for roi in layout.rois if roi.roi_id == "weld_list" and roi.image_path), None)
+            if weld_list_roi:
+                weld_list_tokens = [token.text for token in (ocr_result.tokens if ocr_result else []) if token.roi_id == "weld_list"]
+                task_plan.append(
+                    (
+                        "weld_list_extract",
+                        weld_list_roi,
+                        {
+                            "roi_id": weld_list_roi.roi_id,
+                            "ocr_preview": weld_list_tokens[:20],
+                        },
+                    )
+                )
+
+        for roi in layout.rois:
+            if roi.type != "roi_weld_label" or not roi.image_path:
+                continue
+            if mode == "review_only":
+                matching_token = next((token for token in (ocr_result.tokens if ocr_result else []) if token.roi_id == roi.roi_id), None)
+                if matching_token and matching_token.confidence >= 0.75:
+                    continue
+            task_plan.append(
+                (
+                    "weld_location_describe",
+                    roi,
+                    {"roi_id": roi.roi_id, "weld_hint": roi.weld_hint or ""},
+                )
+            )
+
+        return task_plan
 
 
 def build_prompt(task_type: str, options: dict[str, Any]) -> str:
@@ -99,5 +184,24 @@ def build_prompt(task_type: str, options: dict[str, Any]) -> str:
             "Choose the most likely OCR token from the given candidates and explain briefly.\n"
             f"Candidates: {options.get('candidates', [])}"
         )
+    if task_type == "drawing_title_extract":
+        ocr_preview = options.get("ocr_preview", [])
+        return (
+            "You are reading a piping drawing title block.\n"
+            f"OCR preview tokens: {ocr_preview}\n"
+            "Return JSON only.\n"
+            "Extract the best visible drawing_number.\n"
+            "If visible, also provide pipe_size, material_spec, project_number, and spool_name.\n"
+            "Prefer exact visible text. Leave unclear optional fields as empty strings."
+        )
+    if task_type == "weld_list_extract":
+        ocr_preview = options.get("ocr_preview", [])
+        return (
+            "You are reading a welding list or weld identifier area from a piping drawing.\n"
+            f"OCR preview tokens: {ocr_preview}\n"
+            "Return JSON only.\n"
+            "Extract the visible weld_ids as strings in reading order.\n"
+            "If the list uses numeric identifiers, return numbers like \"1\", \"2\", \"3\".\n"
+            "Do not invent weld IDs that are not visible."
+        )
     raise ValueError(f"Unsupported task_type: {task_type}")
-
