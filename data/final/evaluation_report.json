@@ -3,11 +3,11 @@
   "aggregate": {
     "sample_count": 6,
     "included_sample_count": 4,
-    "drawing_number_accuracy": 0.75,
-    "drawing_type_accuracy": 0.75,
+    "drawing_number_accuracy": 1.0,
+    "drawing_type_accuracy": 1.0,
     "rejected_correctly_accuracy": null,
     "weld_precision_micro": 1.0,
-    "weld_recall_micro": 0.8056,
+    "weld_recall_micro": 1.0,
     "bom_field_accuracy_micro": 0.5077,
     "limitations": [
       "This report covers only the curated local regression samples.",
@@ -554,16 +554,16 @@
     {
       "input_file": "samples\\real\\11.png",
       "drawing_number_ground_truth": "SG-3-HWS-SP-0001A",
-      "drawing_number_predicted": "doc_20260404_0005_3822",
-      "drawing_number_match": false,
+      "drawing_number_predicted": "SG-3-HWS-SP-0001A",
+      "drawing_number_match": true,
       "drawing_type_ground_truth": "simple_spool",
-      "drawing_type_predicted": "unknown",
-      "drawing_type_match": false,
+      "drawing_type_predicted": "simple_spool",
+      "drawing_type_match": true,
       "supported_ground_truth": true,
-      "supported_predicted": false,
+      "supported_predicted": true,
       "rejection_reason_ground_truth": null,
-      "rejection_reason_predicted": "drawing_type_unknown",
-      "rejected_correctly": false,
+      "rejection_reason_predicted": null,
+      "rejected_correctly": true,
       "weld_ids_ground_truth": [
         "A",
         "B",
@@ -573,10 +573,16 @@
         "F",
         "G"
       ],
-      "weld_ids_predicted": [],
-      "weld_true_positive_ids": [],
-      "weld_false_positive_ids": [],
-      "weld_false_negative_ids": [
+      "weld_ids_predicted": [
+        "A",
+        "B",
+        "C",
+        "G",
+        "E",
+        "D",
+        "F"
+      ],
+      "weld_true_positive_ids": [
         "A",
         "B",
         "C",
@@ -585,11 +591,13 @@
         "F",
         "G"
       ],
-      "weld_precision": 0.0,
-      "weld_recall": 0.0,
+      "weld_false_positive_ids": [],
+      "weld_false_negative_ids": [],
+      "weld_precision": 1.0,
+      "weld_recall": 1.0,
       "bom_count_ground_truth": 8,
-      "bom_count_predicted": 0,
-      "bom_count_delta": -8,
+      "bom_count_predicted": 3,
+      "bom_count_delta": -5,
       "bom_field_accuracy": 0.0,
       "bom_row_recall": 0.0,
       "bom_truth_row_count": 8,
@@ -806,7 +814,7 @@
           }
         }
       ],
-      "review_count": 1,
+      "review_count": 29,
       "excluded_from_metrics": false,
       "notes": "This clean spool drawing uses alphabetic weld IDs (A-G) plus a structured BOM and weld list, so it is the current ground-truth probe for non-W numeric weld naming."
     }

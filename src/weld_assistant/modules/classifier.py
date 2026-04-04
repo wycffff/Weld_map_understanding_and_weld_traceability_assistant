@@ -21,9 +21,15 @@ class DrawingClassifier:
         compact = re.sub(r"[^A-Z0-9]", "", raw_joined)
         normalized_tokens = [re.sub(r"[^A-Z0-9-]", "", text.upper()) for text in raw_texts]
         has_spool_code = any(re.search(r"\d+[A-Z0-9]*-\d+", token) for token in normalized_tokens)
+        has_alpha_spool_code = any(re.search(r"[A-Z]{1,4}(?:-[A-Z0-9]{1,6}){2,}", token) for token in normalized_tokens)
         has_pipeline_code = bool(re.search(r"N-\d+-P-\d+-[A-Z0-9]+", raw_joined))
         has_welding_list_signal = any(keyword in compact for keyword in ("WELDINGLIST", "WELDINGUIST", "WELDINGL1ST"))
         has_material_table_signal = any(keyword in compact for keyword in ("ERECTIONMATERIALS", "FABRICATIONMATERIALS"))
+        has_bom_signal = any(
+            keyword in compact
+            for keyword in ("BILLOFMATERIAL", "BILLOFMATERIALS", "BILLOFMATERAL", "MATERIALLIST")
+        )
+        has_weld_count_signal = "WELDCOUNT" in compact
 
         if any(keyword in compact for keyword in ("SHELLSIDE", "TUBESIDE", "NATIONALBOARD")):
             return DrawingClassification(
@@ -32,6 +38,15 @@ class DrawingClassifier:
                 supported=False,
                 rejection_reason="drawing_type_not_supported",
                 matched_signals=collect_signals(compact, ("SHELLSIDE", "TUBESIDE", "NATIONALBOARD")),
+            )
+
+        if "WELDLOG" in compact and (
+            "ACTIONGROUP" in compact or "WELDINGPROCEDURE" in compact or "JOINTTYPE" in compact or "WELD#" in raw_joined
+        ):
+            return DrawingClassification(
+                drawing_type="weld_log",
+                document_profile="weld_log",
+                matched_signals=collect_signals(compact, ("WELDLOG", "ACTIONGROUP", "WELDINGPROCEDURE", "JOINTTYPE")),
             )
 
         if "GENERALARRANGEMENT" in compact or "P&ID" in raw_joined or re.search(r"\bP\s*&\s*ID\b", raw_joined):
@@ -62,11 +77,12 @@ class DrawingClassifier:
                 matched_signals=collect_signals(compact, ("PARTSLIST", "BILLOFMATERIALS", "WPS", "WPQR")),
             )
 
-        if "BILLOFMATERIALS" in compact and has_spool_code:
+        if has_bom_signal and (has_spool_code or has_alpha_spool_code or has_weld_count_signal or has_welding_list_signal):
             return DrawingClassification(
                 drawing_type="simple_spool",
                 document_profile="simple_spool",
-                matched_signals=collect_signals(compact, ("BILLOFMATERIALS",)) + ["SPOOL_CODE"],
+                matched_signals=collect_signals(compact, ("BILLOFMATERIAL", "BILLOFMATERIALS", "WELDCOUNT", "WELDINGLIST"))
+                + (["SPOOL_CODE"] if has_spool_code or has_alpha_spool_code else []),
             )
 
         if compact.count("ISOMETRICDRAWING") >= 2 or ("ISOMETRICDRAWING" in compact and "WELDNO" in compact):

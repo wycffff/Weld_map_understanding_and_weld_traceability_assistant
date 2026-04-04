@@ -24,8 +24,28 @@ class LayoutSection(BaseModel):
     bom_keywords: list[str] = Field(default_factory=list)
     titleblock_keywords: list[str] = Field(default_factory=list)
     weld_id_pattern: str = r"^W[- ]?\d+$"
+    weld_id_patterns: dict[str, list[str]] = Field(default_factory=dict)
     weld_roi_padding_px: int = 80
     weld_roi_overlap: float = 0.2
+
+    def patterns_for(self, *keys: str | None) -> list[str]:
+        patterns: list[str] = []
+        for key in keys:
+            if not key:
+                continue
+            patterns.extend(self.weld_id_patterns.get(key, []))
+        patterns.extend(self.weld_id_patterns.get("default", []))
+        if not patterns and self.weld_id_pattern:
+            patterns.append(self.weld_id_pattern)
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for pattern in patterns:
+            if not pattern or pattern in seen:
+                continue
+            seen.add(pattern)
+            deduped.append(pattern)
+        return deduped
 
 
 class OcrSection(BaseModel):

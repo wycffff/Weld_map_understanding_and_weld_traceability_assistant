@@ -21,6 +21,25 @@ layout:
     - "DWG NO"
     - "REV"
   weld_id_pattern: "^W[- ]?\\d+$"
+  weld_id_patterns:
+    simple_spool:
+      - "^W[- ]?\\d+$"
+      - "^[A-G]$"
+      - "^\\d{3}$"
+    fabrication_weld_map:
+      - "^W\\d+$"
+    fabrication_weld_sheet:
+      - "^W\\d+$"
+    pipeline_isometric:
+      - "^\\d+$"
+      - "^[A-Z]\\d*-\\d+$"
+    welding_map_sheet:
+      - "^\\d+$"
+      - "^[A-Z]\\d*-\\d+$"
+    weld_log:
+      - "^\\d+$"
+    default:
+      - "^W[- ]?\\d+$"
   weld_roi_padding_px: 80
   weld_roi_overlap: 0.2
 

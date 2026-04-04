@@ -174,7 +174,7 @@ class FusionEngine:
     def _extract_bom(self, ocr: OCRResult, drawing: DrawingData, review_items: list[ReviewItem]) -> list[BOMItem]:
         items: list[BOMItem] = []
         for table in ocr.tables:
-            if table.roi_id == "weld_list":
+            if table.roi_id in {"weld_list", "weld_log_table"}:
                 continue
             mapped_rows, raw_cols = map_bom_table(table.cells)
             table_items: list[BOMItem] = []
@@ -216,64 +216,74 @@ class FusionEngine:
         return items
 
     def _extract_welds(self, layout: LayoutPlan, ocr: OCRResult, vlm: VLMResult | None, review_items: list[ReviewItem]) -> list[WeldItem]:
+        document_profile = str(layout.layout_log.get("document_profile", ""))
+        weld_patterns = merge_weld_patterns(
+            self.config.layout.patterns_for(layout.drawing_type, document_profile),
+            default_weld_patterns_for(layout.drawing_type, document_profile),
+        )
         location_map = {
             task.output_json.get("weld_id", "").replace("-", "").replace(" ", "").upper(): task.output_json.get("location_description")
             for task in (vlm.tasks if vlm else [])
             if task.task_type == "weld_location_describe" and task.schema_valid
         }
-        vlm_weld_ids = extract_vlm_weld_ids(vlm)
+        vlm_weld_ids = extract_vlm_weld_ids(vlm, weld_patterns)
         welds: dict[str, WeldItem] = {}
-        for token in ocr.tokens:
-            candidate = normalize_weld_id(token.text)
-            if not candidate:
-                continue
-            if candidate in welds:
-                review_items.append(
-                    ReviewItem(
-                        item_type="duplicate_weld_id",
-                        field="weld_id",
-                        roi_id=token.roi_id,
-                        ocr_value=candidate,
-                        message=f"Duplicate weld_id detected: {candidate}",
-                        evidence={"ocr_confidence": token.confidence, "ocr_bbox": token.bbox},
+        if layout.drawing_type not in {"weld_log", "pipeline_isometric"}:
+            for token in ocr.tokens:
+                candidate = normalize_weld_id(token.text)
+                if not candidate and layout.drawing_type == "simple_spool":
+                    if token.roi_id.startswith("iso") or token.roi_id.startswith("weld_") or token.roi_id == "weld_list":
+                        candidate = normalize_weld_id_by_patterns(token.text, [r"^[A-G]$"])
+                if not candidate:
+                    continue
+                if candidate in welds:
+                    review_items.append(
+                        ReviewItem(
+                            item_type="duplicate_weld_id",
+                            field="weld_id",
+                            roi_id=token.roi_id,
+                            ocr_value=candidate,
+                            message=f"Duplicate weld_id detected: {candidate}",
+                            evidence={"ocr_confidence": token.confidence, "ocr_bbox": token.bbox},
+                        )
                     )
-                )
-                continue
-            needs_review = token.confidence < 0.7
-            if needs_review:
-                review_items.append(
-                    ReviewItem(
-                        item_type="low_confidence",
-                        field="weld_id",
-                        roi_id=token.roi_id,
-                        ocr_value=candidate,
-                        message=f"Low OCR confidence for weld_id: {candidate}",
-                        evidence={"ocr_confidence": token.confidence, "ocr_bbox": token.bbox},
+                    continue
+                needs_review = token.confidence < 0.7
+                if needs_review:
+                    review_items.append(
+                        ReviewItem(
+                            item_type="low_confidence",
+                            field="weld_id",
+                            roi_id=token.roi_id,
+                            ocr_value=candidate,
+                            message=f"Low OCR confidence for weld_id: {candidate}",
+                            evidence={"ocr_confidence": token.confidence, "ocr_bbox": token.bbox},
+                        )
                     )
+                welds[candidate] = WeldItem(
+                    weld_id=candidate,
+                    location_description=location_map.get(candidate.upper()),
+                    confidence=token.confidence,
+                    needs_review=needs_review,
+                    provenance=WeldProvenance(
+                        ocr_token_bbox=token.bbox,
+                        roi_id=token.roi_id,
+                        ocr_confidence=token.confidence,
+                        vlm_used=candidate.upper() in location_map,
+                        correction_applied=token.correction_applied,
+                    ),
                 )
-            welds[candidate] = WeldItem(
-                weld_id=candidate,
-                location_description=location_map.get(candidate.upper()),
-                confidence=token.confidence,
-                needs_review=needs_review,
-                provenance=WeldProvenance(
-                    ocr_token_bbox=token.bbox,
-                    roi_id=token.roi_id,
-                    ocr_confidence=token.confidence,
-                    vlm_used=candidate.upper() in location_map,
-                    correction_applied=token.correction_applied,
-                ),
-            )
 
         is_pipeline_isometric = (
             layout.drawing_type == "pipeline_isometric"
-            or str(layout.layout_log.get("document_profile", "")) == "welding_map_sheet"
+            or document_profile == "welding_map_sheet"
         )
-        if is_pipeline_isometric:
-            parsed_rows, raw_columns = extract_weld_list_rows(ocr)
+        uses_weld_list_table = is_pipeline_isometric or layout.drawing_type == "simple_spool"
+        if uses_weld_list_table:
+            parsed_rows, raw_columns = extract_weld_list_rows(ocr, roi_ids=("weld_list",))
             if parsed_rows:
                 for row in parsed_rows:
-                    weld_id = normalize_weld_id_or_numeric(row.get("weld_id"))
+                    weld_id = normalize_weld_id_or_numeric(row.get("weld_id"), weld_patterns)
                     if not weld_id or weld_id in welds:
                         continue
                     row_issues = collect_weld_list_issues(row)
@@ -315,7 +325,7 @@ class FusionEngine:
                             evidence={"raw_columns": raw_columns},
                         )
                     )
-            else:
+            elif is_pipeline_isometric:
                 inferred_ids, evidence = infer_numeric_weld_ids_from_weld_list(layout.rois)
                 if inferred_ids:
                     review_items.append(
@@ -343,6 +353,54 @@ class FusionEngine:
                             correction_applied=False,
                         ),
                     )
+
+        if layout.drawing_type == "weld_log":
+            parsed_rows, raw_columns = extract_weld_list_rows(ocr, roi_ids=("weld_log_table",))
+            for row in parsed_rows:
+                weld_id = normalize_weld_id_or_numeric(row.get("weld_id"), weld_patterns)
+                if not weld_id or weld_id in welds:
+                    continue
+                if not any(row.get(field) for field in ("pipe_size", "weld_type", "wps_number")):
+                    continue
+                row_issues = collect_weld_list_issues(row)
+                welds[weld_id] = WeldItem(
+                    weld_id=weld_id,
+                    location_description=location_map.get(weld_id.upper()),
+                    pipe_size=stringify_cell(row.get("pipe_size")),
+                    weld_type=stringify_cell(row.get("weld_type")),
+                    wps_number=stringify_cell(row.get("wps_number")),
+                    remarks=stringify_cell(row.get("remarks")),
+                    confidence=float(row.get("confidence", 0.0)),
+                    needs_review=bool(row_issues),
+                    provenance=WeldProvenance(
+                        ocr_token_bbox=None,
+                        roi_id="weld_log_table",
+                        ocr_confidence=float(row.get("confidence", 0.0)),
+                        vlm_used=weld_id.upper() in location_map,
+                        correction_applied=False,
+                    ),
+                )
+                if row_issues:
+                    review_items.append(
+                        ReviewItem(
+                            item_type="weld_log_row_needs_review",
+                            field="weld_id",
+                            roi_id="weld_log_table",
+                            ocr_value=weld_id,
+                            message=f"WELD LOG row for {weld_id} needs review: {', '.join(row_issues)}",
+                            evidence={"row": row, "issues": row_issues},
+                        )
+                    )
+            if raw_columns:
+                review_items.append(
+                    ReviewItem(
+                        item_type="weld_log_column_mismatch",
+                        field="weld_id",
+                        roi_id="weld_log_table",
+                        message="WELD LOG columns could not be fully mapped to expected semantics.",
+                        evidence={"raw_columns": raw_columns},
+                    )
+                )
 
         added_by_vlm: list[str] = []
         for vlm_id in vlm_weld_ids:
@@ -378,13 +436,30 @@ class FusionEngine:
 
 
 def normalize_weld_id(text: str) -> str | None:
-    normalized = text.replace(" ", "").replace("-", "").upper()
-    if not normalized.startswith("W"):
-        return None
-    digits = normalized[1:]
-    if not digits.isdigit() or len(digits) > 4:
-        return None
-    return f"W{digits.zfill(2)}"
+    return normalize_weld_id_by_patterns(text, [r"^W[- ]?\d+$"])
+
+
+def default_weld_patterns_for(drawing_type: str | None, document_profile: str | None) -> list[str]:
+    keys = [drawing_type or "", document_profile or ""]
+    if any(key in {"simple_spool"} for key in keys):
+        return [r"^W[- ]?\d+$", r"^[A-G]$", r"^\d{3}$"]
+    if any(key in {"pipeline_isometric", "welding_map_sheet", "weld_log"} for key in keys):
+        return [r"^\d+$", r"^[A-Z]\d*-\d+$"]
+    if any(key in {"fabrication_weld_map", "fabrication_weld_sheet"} for key in keys):
+        return [r"^W\d+$"]
+    return [r"^W[- ]?\d+$", r"^\d+$", r"^[A-Z]$", r"^[A-Z]\d*-\d+$", r"^\d{3}$"]
+
+
+def merge_weld_patterns(*pattern_lists: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for pattern_list in pattern_lists:
+        for pattern in pattern_list:
+            if not pattern or pattern in seen:
+                continue
+            seen.add(pattern)
+            merged.append(pattern)
+    return merged
 
 
 def first_match(values: Iterable[str], pattern: str) -> str | None:
@@ -409,7 +484,7 @@ def stringify_vlm_value(value) -> str | None:
     return text or None
 
 
-def extract_vlm_weld_ids(vlm: VLMResult | None) -> list[str]:
+def extract_vlm_weld_ids(vlm: VLMResult | None, patterns: list[str] | None = None) -> list[str]:
     if not vlm:
         return []
 
@@ -418,22 +493,52 @@ def extract_vlm_weld_ids(vlm: VLMResult | None) -> list[str]:
         if task.task_type != "weld_list_extract" or not task.schema_valid:
             continue
         for raw_value in task.output_json.get("weld_ids", []):
-            normalized = normalize_weld_id_or_numeric(raw_value)
+            normalized = normalize_weld_id_or_numeric(raw_value, patterns)
             if normalized:
                 candidates.append(normalized)
     return dedupe_preserve_order(candidates)
 
 
-def normalize_weld_id_or_numeric(value) -> str | None:
+def normalize_weld_id_or_numeric(value, patterns: list[str] | None = None) -> str | None:
     text = stringify_vlm_value(value)
     if not text:
         return None
-    normalized_weld = normalize_weld_id(text)
-    if normalized_weld:
-        return normalized_weld
-    compact = text.replace(" ", "").replace("-", "")
-    if compact.isdigit() and len(compact) <= 4:
-        return str(int(compact))
+    fallback_patterns = patterns or [r"^W[- ]?\d+$", r"^[A-Z]$", r"^\d+$", r"^\d{3}$", r"^[A-Z]\d*-\d+$"]
+    return normalize_weld_id_by_patterns(text, fallback_patterns)
+
+
+def normalize_weld_id_by_patterns(value, patterns: list[str] | None) -> str | None:
+    text = stringify_vlm_value(value)
+    if not text:
+        return None
+
+    raw_patterns = [pattern for pattern in (patterns or []) if pattern]
+    compiled = [re.compile(pattern, re.IGNORECASE) for pattern in raw_patterns]
+    if not compiled:
+        return None
+
+    raw = text.strip().upper()
+    compact = raw.replace(" ", "")
+    hyphenless = compact.replace("-", "")
+    candidate_forms: list[tuple[str, list[str]]] = []
+    preserve_three_digit_numeric = any("\\d{3}" in pattern for pattern in raw_patterns)
+
+    if re.fullmatch(r"W\d{1,4}", hyphenless):
+        candidate_forms.append((f"W{hyphenless[1:].zfill(2)}", [compact, hyphenless]))
+    if re.fullmatch(r"[A-Z]", compact):
+        candidate_forms.append((compact, [compact]))
+    if re.fullmatch(r"\d+", hyphenless):
+        if len(hyphenless) == 3 and preserve_three_digit_numeric:
+            candidate_forms.append((hyphenless, [hyphenless]))
+        candidate_forms.append((str(int(hyphenless)), [hyphenless, str(int(hyphenless))]))
+    if re.fullmatch(r"[A-Z]\d*-\d+", compact):
+        candidate_forms.append((compact, [compact]))
+    candidate_forms.append((compact, [raw, compact, hyphenless]))
+
+    for normalized, match_values in candidate_forms:
+        for pattern in compiled:
+            if any(pattern.fullmatch(match_value) for match_value in match_values if match_value):
+                return normalized
     return None
 
 
@@ -514,9 +619,9 @@ def map_bom_table(cells) -> tuple[list[dict], dict[int, str]]:
     return result_rows, raw_cols
 
 
-def extract_weld_list_rows(ocr: OCRResult) -> tuple[list[dict], dict[int, str]]:
+def extract_weld_list_rows(ocr: OCRResult, roi_ids: tuple[str, ...] = ("weld_list",)) -> tuple[list[dict], dict[int, str]]:
     for table in ocr.tables:
-        if table.roi_id != "weld_list":
+        if table.roi_id not in roi_ids:
             continue
         return map_weld_list_table(table.cells)
     return [], {}
@@ -583,7 +688,8 @@ def normalize_drawing_number(value: str | None) -> str | None:
         return None
     normalized = value.upper().replace('"', "")
     normalized = re.sub(r"(?<=\d)C(?=[A-Z])", "-", normalized)
-    normalized = re.sub(r"(?<=\d)(?=[A-Z])", "-", normalized, count=1)
+    if normalized.count("-") <= 1:
+        normalized = re.sub(r"(?<=\d)(?=[A-Z])", "-", normalized, count=1)
     normalized = re.sub(r"-{2,}", "-", normalized)
     return normalized
 
@@ -698,10 +804,10 @@ BOM_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 WELD_LIST_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
-    "weld_id": ("WELDNO", "WELDNUMBER", "WELDID", "NO"),
-    "pipe_size": ("SIZE", "NPS", "DIA"),
+    "weld_id": ("WELD", "WELDNO", "WELDNUMBER", "WELDID", "NO"),
+    "pipe_size": ("SIZE", "NPS", "DIA", "DIAMETER"),
     "weld_type": ("TYPE", "JOINTTYPE"),
-    "wps_number": ("WPSNO", "WPS", "WPSNUMBER", "PROC"),
+    "wps_number": ("WPSNO", "WPS", "WPSNUMBER", "PROC", "WELDINGPROCEDURE"),
     "remarks": ("REMARKS", "REMARK", "NOTE"),
 }
 

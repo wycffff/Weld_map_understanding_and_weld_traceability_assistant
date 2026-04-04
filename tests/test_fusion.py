@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 
 from weld_assistant.config import AppConfig
 from weld_assistant.contracts import DrawingData, LayoutPlan, OCRResult, OCRTable, OCRTableCell, OCRToken, ROI, VLMResult, VLMTaskResult
-from weld_assistant.modules.fusion import FusionEngine, build_bom_item, map_bom_table, map_weld_list_table
+from weld_assistant.modules.fusion import FusionEngine, build_bom_item, map_bom_table, map_weld_list_table, normalize_weld_id_by_patterns
 
 
 class FusionEngineTest(unittest.TestCase):
@@ -378,6 +378,13 @@ class FusionEngineTest(unittest.TestCase):
         self.assertEqual(rows[0]["wps_number"], "S10")
         self.assertEqual(rows[0]["remarks"], "FIELD")
         self.assertEqual(raw_cols, {})
+
+    def test_normalize_weld_id_by_patterns_supports_alphabetic_and_hyphenated_ids(self) -> None:
+        patterns = [r"^[A-G]$", r"^\d{3}$", r"^[A-Z]\d*-\d+$"]
+
+        self.assertEqual(normalize_weld_id_by_patterns("A", patterns), "A")
+        self.assertEqual(normalize_weld_id_by_patterns("001", patterns), "001")
+        self.assertEqual(normalize_weld_id_by_patterns("G1-1", patterns), "G1-1")
 
 
 if __name__ == "__main__":
