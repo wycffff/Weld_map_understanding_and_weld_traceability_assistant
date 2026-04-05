@@ -247,11 +247,6 @@ Current automated coverage includes:
 - review-service behavior
 - service smoke coverage
 
-## Retrospective Documents
-
-- English retrospective: [docs/project-retrospective.en.md](docs/project-retrospective.en.md)
-- Chinese retrospective: [docs/project-retrospective.zh-CN.md](docs/project-retrospective.zh-CN.md)
-
 ## Known Limitations
 
 - The benchmark is still limited by available customer-grade drawings.
